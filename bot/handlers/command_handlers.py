@@ -6,7 +6,12 @@ from aiogram.fsm.context import FSMContext
 from ..states import ImageGenerationStates
 from ..config import logger, ADMIN_ID, GENERATION_PRICE, MAX_IMAGES_PER_REQUEST
 from ..services.payment_service import payment_service
+from ..services.balance_service import BalanceService
+from ..repositories.sqlite import SQLiteBalanceRepository
 from .. import messages
+
+# Инициализируем сервис баланса
+balance_service = BalanceService(SQLiteBalanceRepository())
 
 command_router = Router()
 
@@ -38,6 +43,28 @@ async def generate_command(message: Message, state: FSMContext):
         messages.GENERATE_START_UNIFIED.format(max_images=MAX_IMAGES_PER_REQUEST),
         parse_mode="HTML"
     )
+
+
+@command_router.message(Command("balance"))
+async def balance_command(message: Message):
+    """Проверить баланс генераций"""
+    user_balance = await balance_service.get_balance(message.from_user.id)
+    
+    if user_balance > 0:
+        await message.answer(
+            f"💎 <b>Ваш баланс</b>\n\n"
+            f"Доступно генераций: {user_balance}\n\n"
+            f"Используйте /generate для создания изображения",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(
+            f"💎 <b>Ваш баланс</b>\n\n"
+            f"Доступно генераций: 0\n\n"
+            f"Для генерации изображений необходимо пополнить баланс.\n"
+            f"Используйте /generate и выберите подходящий пакет.",
+            parse_mode="HTML"
+        )
 
 
 @command_router.message(Command("paysupport"))

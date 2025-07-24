@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 
-from .base import SessionRepository, PaymentRepository
+from .base import SessionRepository, PaymentRepository, BalanceRepository
 from ..config import logger
 
 
@@ -173,6 +173,92 @@ class SQLitePaymentRepository(PaymentRepository):
             """, (user_id, limit)) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
+
+
+class SQLiteBalanceRepository(BalanceRepository):
+    """SQLite реализация репозитория балансов"""
+    
+    def __init__(self, db_path: str = "bot_data.db"):
+        self.db_path = db_path
+    
+    async def get_balance(self, user_id: int) -> int:
+        """Получить баланс пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row['balance']
+        return 0
+    
+    async def add_balance(self, user_id: int, amount: int) -> int:
+        """Добавить к балансу пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Сначала пытаемся обновить существующий баланс
+            cursor = await db.execute("""
+                UPDATE user_balances 
+                SET balance = balance + ?, updated_at = ?
+                WHERE user_id = ?
+            """, (amount, datetime.now().isoformat(), user_id))
+            
+            if cursor.rowcount == 0:
+                # Если записи нет, создаем новую
+                await db.execute("""
+                    INSERT INTO user_balances (user_id, balance, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """, (user_id, amount, datetime.now().isoformat(), datetime.now().isoformat()))
+            
+            await db.commit()
+            
+            # Возвращаем новый баланс
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else amount
+    
+    async def deduct_balance(self, user_id: int, amount: int) -> bool:
+        """Списать с баланса пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Проверяем текущий баланс
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row or row[0] < amount:
+                    return False
+            
+            # Списываем баланс
+            await db.execute("""
+                UPDATE user_balances 
+                SET balance = balance - ?, updated_at = ?
+                WHERE user_id = ? AND balance >= ?
+            """, (amount, datetime.now().isoformat(), user_id, amount))
+            
+            await db.commit()
+            return True
+    
+    async def create_or_get_balance(self, user_id: int) -> int:
+        """Создать баланс если не существует или вернуть существующий"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Проверяем существующий баланс
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0]
+            
+            # Создаем новый баланс
+            await db.execute("""
+                INSERT INTO user_balances (user_id, balance, created_at, updated_at)
+                VALUES (?, 0, ?, ?)
+            """, (user_id, datetime.now().isoformat(), datetime.now().isoformat()))
+            await db.commit()
+            
+            return 0
 
 
 async def init_database(db_path: str = "bot_data.db"):

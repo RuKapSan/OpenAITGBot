@@ -66,3 +66,27 @@ class PaymentRepository(ABC):
     async def get_user_payments(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """Получить платежи пользователя"""
         pass
+
+
+class BalanceRepository(ABC):
+    """Абстрактный репозиторий для работы с балансами пользователей"""
+    
+    @abstractmethod
+    async def get_balance(self, user_id: int) -> int:
+        """Получить баланс пользователя"""
+        pass
+    
+    @abstractmethod
+    async def add_balance(self, user_id: int, amount: int) -> int:
+        """Добавить к балансу пользователя"""
+        pass
+    
+    @abstractmethod
+    async def deduct_balance(self, user_id: int, amount: int) -> bool:
+        """Списать с баланса пользователя"""
+        pass
+    
+    @abstractmethod
+    async def create_or_get_balance(self, user_id: int) -> int:
+        """Создать баланс если не существует или вернуть существующий"""
+        pass

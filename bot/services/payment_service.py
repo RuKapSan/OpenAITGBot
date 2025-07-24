@@ -66,6 +66,29 @@ class PaymentService:
             photo_height=512
         )
     
+    async def create_package_invoice(
+        self,
+        message: Message,
+        session_id: str,
+        package_size: int,
+        package_price: int
+    ):
+        """Создать инвойс для покупки пакета генераций"""
+        await message.bot.send_invoice(
+            chat_id=message.chat.id,
+            title=f"Пакет {package_size} генераций",
+            description=f"Покупка {package_size} генераций для создания изображений",
+            payload=f"package:{session_id}:{package_size}",
+            provider_token="",
+            currency="XTR",
+            prices=[
+                LabeledPrice(label=f"{package_size} генераций", amount=package_price)
+            ],
+            photo_url=INVOICE_PHOTO_URL,
+            photo_width=512,
+            photo_height=512
+        )
+    
     async def save_payment(
         self,
         session_id: str,
