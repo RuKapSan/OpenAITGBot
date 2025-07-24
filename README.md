@@ -79,7 +79,7 @@ python main.py
 ```
 OpenAITGBot/
 ├── main.py                          # Точка входа
-├── openai_tg_bot/
+├── bot/
 │   ├── __init__.py                  # Инициализация бота
 │   ├── config.py                    # Конфигурация
 │   ├── states.py                    # FSM состояния
@@ -141,7 +141,7 @@ python manage_migrations.py rollback 001
 
 #### Создание новой миграции
 
-1. Создайте файл в `openai_tg_bot/migrations/` с именем `m_XXX_description.py`
+1. Создайте файл в `bot/migrations/` с именем `m_XXX_description.py`
    где XXX - номер версии (например, 003)
 
 2. Создайте класс миграции:

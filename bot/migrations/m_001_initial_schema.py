@@ -1,7 +1,7 @@
 """
 Начальная схема базы данных
 """
-from .migration_system import Migration
+from bot.migrations.migration_system import Migration
 
 
 class InitialSchema(Migration):

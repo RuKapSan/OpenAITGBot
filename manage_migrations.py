@@ -15,8 +15,8 @@ from pathlib import Path
 # Добавляем корневую директорию в путь
 sys.path.insert(0, str(Path(__file__).parent))
 
-from openai_tg_bot.migrations.migration_system import MigrationSystem
-from openai_tg_bot.config import logger
+from bot.migrations.migration_system import MigrationSystem
+from bot.config import logger
 
 
 async def show_status(db_path: str):

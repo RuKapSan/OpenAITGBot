@@ -1,7 +1,7 @@
 """
 Добавление статистики генераций
 """
-from .migration_system import Migration
+from bot.migrations.migration_system import Migration
 
 
 class AddGenerationStats(Migration):

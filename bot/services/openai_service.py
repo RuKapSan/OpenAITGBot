@@ -69,15 +69,28 @@ async def generate_image(prompt: str, input_images: Optional[List[bytes]] = None
             # Обрабатываем разные типы ошибок
             error_message = messages.OPENAI_ERROR_GENERIC
             
-            if "rate_limit" in str(e).lower():
+            # Проверяем на ошибку модерации
+            if hasattr(e, 'response') and hasattr(e.response, 'json'):
+                try:
+                    error_data = e.response.json()
+                    if error_data.get('error', {}).get('code') == 'moderation_blocked':
+                        error_message = messages.OPENAI_ERROR_MODERATION
+                except:
+                    pass
+            
+            # Проверяем другие типы ошибок по тексту
+            error_str = str(e).lower()
+            if "moderation_blocked" in error_str:
+                error_message = messages.OPENAI_ERROR_MODERATION
+            elif "rate_limit" in error_str:
                 error_message = messages.OPENAI_ERROR_RATE_LIMIT
-            elif "invalid_api_key" in str(e).lower():
+            elif "invalid_api_key" in error_str:
                 error_message = messages.OPENAI_ERROR_AUTH
-            elif "model_not_found" in str(e).lower():
+            elif "model_not_found" in error_str:
                 error_message = messages.OPENAI_ERROR_MODEL
-            elif "timeout" in str(e).lower():
+            elif "timeout" in error_str:
                 error_message = messages.OPENAI_ERROR_TIMEOUT
-            elif "insufficient_quota" in str(e).lower():
+            elif "insufficient_quota" in error_str:
                 error_message = messages.OPENAI_ERROR_QUOTA
             
             # Создаем кастомное исключение с понятным сообщением
