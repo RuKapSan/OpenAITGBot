@@ -2,7 +2,8 @@ from typing import Optional, Tuple
 from aiogram import Bot
 from aiogram.types import LabeledPrice, Message
 
-from ..config import GENERATION_PRICE, logger, TEST_MODE
+from ..config import GENERATION_PRICE, logger, payment_logger, TEST_MODE, MAX_PROMPT_LENGTH, INVOICE_PHOTO_URL
+from .. import messages
 from ..repositories.base import SessionRepository, PaymentRepository
 from ..repositories.sqlite import SQLiteSessionRepository, SQLitePaymentRepository
 
@@ -21,8 +22,8 @@ class PaymentService:
     async def create_session(self, user_id: int, images: list, prompt: str) -> str:
         """Создать новую сессию генерации"""
         # Ограничиваем длину промпта
-        if len(prompt) > 1000:
-            raise ValueError("Промпт слишком длинный (максимум 1000 символов)")
+        if len(prompt) > MAX_PROMPT_LENGTH:
+            raise ValueError(f"Промпт слишком длинный (максимум {MAX_PROMPT_LENGTH} символов)")
         
         # Очищаем старые сессии
         await self.session_repo.cleanup_expired_sessions()
@@ -45,18 +46,22 @@ class PaymentService:
         images_count: int
     ):
         """Создать инвойс для оплаты генерации"""
+        prompt_preview = f"{prompt[:50]}{'...' if len(prompt) > 50 else ''}"
+        
         await message.bot.send_invoice(
             chat_id=message.chat.id,
-            title="Генерация изображения",
-            description=f"Промпт: {prompt[:50]}{'...' if len(prompt) > 50 else ''}\n"
-                       f"Изображений: {images_count}",
+            title=messages.INVOICE_TITLE,
+            description=messages.INVOICE_DESCRIPTION.format(
+                prompt_preview=prompt_preview,
+                images_count=images_count
+            ),
             payload=session_id,
             provider_token="",
             currency="XTR",
             prices=[
-                LabeledPrice(label="Генерация", amount=GENERATION_PRICE)
+                LabeledPrice(label=messages.INVOICE_LABEL, amount=GENERATION_PRICE)
             ],
-            photo_url="https://cdn-icons-png.flaticon.com/512/2779/2779775.png",
+            photo_url=INVOICE_PHOTO_URL,
             photo_width=512,
             photo_height=512
         )
@@ -77,13 +82,25 @@ class PaymentService:
         )
         
         # Сохраняем платеж
-        return await self.payment_repo.save_payment(
+        payment_id = await self.payment_repo.save_payment(
             session_id=session_id,
             user_id=user_id,
             payment_charge_id=payment_charge_id,
             amount=amount,
             status='completed'
         )
+        
+        # Логируем платеж
+        payment_logger.info(
+            f"PAYMENT_COMPLETED | "
+            f"user_id={user_id} | "
+            f"session_id={session_id} | "
+            f"payment_charge_id={payment_charge_id} | "
+            f"amount={amount} | "
+            f"payment_id={payment_id}"
+        )
+        
+        return payment_id
     
     async def refund_payment(
         self,
@@ -96,7 +113,7 @@ class PaymentService:
             # Проверяем, не был ли уже возвращен
             payment = await self.payment_repo.get_payment_by_charge_id(payment_charge_id)
             if payment and payment['status'] == 'refunded':
-                return False, "Платеж уже был возвращен"
+                return False, messages.REFUND_ALREADY_DONE
             
             # Выполняем возврат
             await bot.refund_star_payment(
@@ -112,10 +129,28 @@ class PaymentService:
                 )
             
             logger.info(f"Возврат платежа {payment_charge_id} для пользователя {user_id}")
-            return True, "Платеж успешно возвращен"
+            
+            # Логируем возврат
+            payment_logger.info(
+                f"PAYMENT_REFUNDED | "
+                f"user_id={user_id} | "
+                f"payment_charge_id={payment_charge_id} | "
+                f"payment_id={payment['id'] if payment else 'unknown'}"
+            )
+            
+            return True, messages.REFUND_SUCCESS_MESSAGE
             
         except Exception as e:
             logger.error(f"Ошибка возврата платежа {payment_charge_id}: {e}")
+            
+            # Логируем ошибку возврата
+            payment_logger.error(
+                f"PAYMENT_REFUND_FAILED | "
+                f"user_id={user_id} | "
+                f"payment_charge_id={payment_charge_id} | "
+                f"error={type(e).__name__}: {str(e)}"
+            )
+            
             return False, f"Ошибка возврата: {str(e)}"
     
     async def process_payment_error(
@@ -128,11 +163,7 @@ class PaymentService:
         """Обработать ошибку после платежа с автоматическим возвратом"""
         session = await self.get_session(session_id)
         if not session or not session.get('payment_charge_id'):
-            await message.answer(
-                "❌ Ошибка генерации.\n"
-                "⚠️ Не удалось выполнить автоматический возврат.\n"
-                "Обратитесь в поддержку: /paysupport"
-            )
+            await message.answer(messages.ERROR_NO_AUTO_REFUND)
             return
         
         # Пытаемся сделать возврат
@@ -143,15 +174,12 @@ class PaymentService:
         )
         
         if success:
-            await message.answer(
-                "❌ Ошибка генерации.\n"
-                "✅ Платеж автоматически возвращен на ваш баланс Stars!"
-            )
+            await message.answer(messages.ERROR_AUTO_REFUND_SUCCESS)
         else:
             await message.answer(
-                "❌ Ошибка генерации.\n"
-                f"⚠️ Сохраните ID для возврата: `{session['payment_charge_id']}`\n"
-                "Обратитесь в поддержку: /paysupport",
+                messages.ERROR_AUTO_REFUND_FAILED.format(
+                    payment_charge_id=session['payment_charge_id']
+                ),
                 parse_mode="Markdown"
             )
 
