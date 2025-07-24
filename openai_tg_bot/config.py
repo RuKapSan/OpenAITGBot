@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # ID админа для команд управления
 
 GENERATION_PRICE = 20  # Stars
 

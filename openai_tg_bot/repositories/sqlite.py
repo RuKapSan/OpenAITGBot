@@ -1,0 +1,217 @@
+import aiosqlite
+import secrets
+from typing import Optional, Dict, List, Any
+from datetime import datetime, timedelta
+from pathlib import Path
+import json
+
+from .base import SessionRepository, PaymentRepository
+from ..config import logger
+
+
+class SQLiteSessionRepository(SessionRepository):
+    """SQLite реализация репозитория сессий"""
+    
+    def __init__(self, db_path: str = "bot_data.db"):
+        self.db_path = db_path
+    
+    async def create_session(self, user_id: int, images: List[str], prompt: str) -> str:
+        """Создать новую сессию"""
+        session_id = secrets.token_urlsafe(32)
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO sessions (id, user_id, images, prompt, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                user_id,
+                json.dumps(images),
+                prompt,
+                'pending',
+                datetime.now().isoformat()
+            ))
+            await db.commit()
+        
+        return session_id
+    
+    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Получить сессию по ID"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM sessions WHERE id = ?", (session_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        'id': row['id'],
+                        'user_id': row['user_id'],
+                        'images': json.loads(row['images']),
+                        'prompt': row['prompt'],
+                        'status': row['status'],
+                        'payment_charge_id': row['payment_charge_id'],
+                        'created_at': row['created_at']
+                    }
+        return None
+    
+    async def update_session(self, session_id: str, **kwargs) -> bool:
+        """Обновить данные сессии"""
+        allowed_fields = ['status', 'payment_charge_id']
+        updates = []
+        values = []
+        
+        for field, value in kwargs.items():
+            if field in allowed_fields:
+                updates.append(f"{field} = ?")
+                values.append(value)
+        
+        if not updates:
+            return False
+        
+        values.append(session_id)
+        query = f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?"
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(query, values)
+            await db.commit()
+            return True
+    
+    async def delete_session(self, session_id: str) -> bool:
+        """Удалить сессию"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            await db.commit()
+            return True
+    
+    async def cleanup_expired_sessions(self, expire_minutes: int = 30) -> int:
+        """Очистить устаревшие сессии"""
+        expire_time = (datetime.now() - timedelta(minutes=expire_minutes)).isoformat()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                DELETE FROM sessions 
+                WHERE created_at < ? AND status = 'pending'
+            """, (expire_time,))
+            await db.commit()
+            return cursor.rowcount
+
+
+class SQLitePaymentRepository(PaymentRepository):
+    """SQLite реализация репозитория платежей"""
+    
+    def __init__(self, db_path: str = "bot_data.db"):
+        self.db_path = db_path
+    
+    async def save_payment(
+        self, 
+        session_id: str,
+        user_id: int,
+        payment_charge_id: str,
+        amount: int,
+        status: str = "completed"
+    ) -> int:
+        """Сохранить информацию о платеже"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                INSERT INTO payments (session_id, user_id, payment_charge_id, amount, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                user_id,
+                payment_charge_id,
+                amount,
+                status,
+                datetime.now().isoformat()
+            ))
+            await db.commit()
+            return cursor.lastrowid
+    
+    async def get_payment(self, payment_id: int) -> Optional[Dict[str, Any]]:
+        """Получить платеж по ID"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM payments WHERE id = ?", (payment_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return dict(row)
+        return None
+    
+    async def get_payment_by_charge_id(self, payment_charge_id: str) -> Optional[Dict[str, Any]]:
+        """Получить платеж по charge ID"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM payments WHERE payment_charge_id = ?", (payment_charge_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return dict(row)
+        return None
+    
+    async def update_payment_status(self, payment_id: int, status: str) -> bool:
+        """Обновить статус платежа"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE payments SET status = ? WHERE id = ?",
+                (status, payment_id)
+            )
+            await db.commit()
+            return True
+    
+    async def get_user_payments(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        """Получить платежи пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT * FROM payments 
+                WHERE user_id = ? 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (user_id, limit)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+
+async def init_database(db_path: str = "bot_data.db"):
+    """Инициализировать базу данных"""
+    async with aiosqlite.connect(db_path) as db:
+        # Таблица сессий
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                images TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                status TEXT NOT NULL,
+                payment_charge_id TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        
+        # Таблица платежей
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                payment_charge_id TEXT UNIQUE NOT NULL,
+                amount INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                refunded_at TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        """)
+        
+        # Индексы для быстрого поиска
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_charge_id ON payments(payment_charge_id)")
+        
+        await db.commit()
+        
+    logger.info("База данных инициализирована")

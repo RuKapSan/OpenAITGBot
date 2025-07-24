@@ -4,6 +4,8 @@ from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 
 from ..states import ImageGenerationStates
+from ..config import logger, ADMIN_ID
+from ..services.payment_service import payment_service
 
 command_router = Router()
 
@@ -55,3 +57,55 @@ async def generate_command(message: Message, state: FSMContext):
         "Или нажмите кнопку ниже, чтобы сгенерировать изображение с нуля:",
         reply_markup=keyboard
     )
+
+
+@command_router.message(Command("paysupport"))
+async def cmd_paysupport(message: Message):
+    """Поддержка по платежам"""
+    await message.answer(
+        "💬 <b>Поддержка по платежам</b>\n\n"
+        "Если у вас возникли проблемы с генерацией после оплаты:\n"
+        "1. Сохраните ID платежа из сообщения об оплате\n"
+        "2. Напишите в поддержку: @your_support_bot\n"
+        "3. Укажите ID платежа и опишите проблему\n\n"
+        "Возврат осуществляется в течение 24 часов.\n"
+        "Stars вернутся на ваш баланс в Telegram.",
+        parse_mode="HTML"
+    )
+
+
+@command_router.message(Command("refund"))
+async def cmd_refund(message: Message):
+    """Ручной возврат платежа (только для админа)"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ У вас нет прав для выполнения этой команды")
+        return
+    
+    args = message.text.split()
+    if len(args) != 3:
+        await message.answer(
+            "Использование: /refund <user_id> <payment_charge_id>\n"
+            "Пример: /refund 123456789 payment_12345"
+        )
+        return
+    
+    try:
+        user_id = int(args[1])
+        payment_charge_id = args[2]
+        
+        success, msg = await payment_service.refund_payment(
+            message.bot,
+            user_id, 
+            payment_charge_id
+        )
+        
+        if success:
+            await message.answer(f"✅ {msg}")
+        else:
+            await message.answer(f"❌ {msg}")
+            
+    except ValueError:
+        await message.answer("❌ Неверный формат user_id")
+    except Exception as e:
+        logger.error(f"Ошибка при ручном возврате: {e}")
+        await message.answer(f"❌ Ошибка: {str(e)}")
