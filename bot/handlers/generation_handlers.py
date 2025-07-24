@@ -12,10 +12,38 @@ from .. import messages
 generation_router = Router()
 
 
-@generation_router.message(ImageGenerationStates.waiting_for_prompt, F.content_type == ContentType.TEXT)
-async def handle_prompt(message: Message, state: FSMContext):
-    """Обработка текстового промпта"""
-    prompt = message.text.strip()
+@generation_router.message(ImageGenerationStates.waiting_for_prompt, F.content_type == ContentType.PHOTO)
+async def handle_photo_only(message: Message, state: FSMContext):
+    """Обработка фото без текста в состоянии ожидания промпта"""
+    data = await state.get_data()
+    images = data.get('images', [])
+    
+    # Добавляем фото
+    photo = message.photo[-1]
+    images.append(photo.file_id)
+    
+    # Проверяем, есть ли caption (текст с фото)
+    if message.caption:
+        # Если есть текст - обрабатываем как полный запрос
+        await state.update_data(images=images)
+        await handle_prompt_with_data(message, state, message.caption)
+    else:
+        # Если текста нет - сохраняем фото и ждем текст
+        await state.update_data(images=images)
+        
+        if len(images) >= MAX_IMAGES_PER_REQUEST:
+            await message.answer(
+                messages.IMAGES_MAX_REACHED.format(count=len(images))
+            )
+        else:
+            await message.answer(
+                f"📸 Загружено {len(images)}/{MAX_IMAGES_PER_REQUEST} изображений.\n\n✍️ Теперь отправьте текстовое описание:"
+            )
+
+
+async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: str):
+    """Общая логика обработки промпта с изображениями"""
+    prompt = prompt.strip()
     
     # Валидация промпта
     if len(prompt) > MAX_PROMPT_LENGTH:
@@ -68,6 +96,20 @@ async def handle_prompt(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка создания сессии: {e}")
         await message.answer(messages.ERROR_SESSION_CREATE)
+
+
+@generation_router.message(ImageGenerationStates.waiting_for_prompt, F.content_type == ContentType.TEXT)
+async def handle_prompt(message: Message, state: FSMContext):
+    """Обработка текстового промпта"""
+    await handle_prompt_with_data(message, state, message.text)
+
+
+@generation_router.message(ImageGenerationStates.waiting_for_prompt)
+async def wrong_content_type(message: Message):
+    """Обработка неверного типа контента"""
+    await message.answer(
+        "❌ Пожалуйста, отправьте текстовое описание или фотографию с описанием."
+    )
 
 @generation_router.message(F.successful_payment)
 async def process_successful_payment(message: Message, state: FSMContext):

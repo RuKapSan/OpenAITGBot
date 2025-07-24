@@ -32,15 +32,11 @@ async def help_command(message: Message):
 async def generate_command(message: Message, state: FSMContext):
     """Начать процесс генерации"""
     await state.clear()
-    await state.set_state(ImageGenerationStates.waiting_for_images)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=messages.SKIP_IMAGES_BUTTON, callback_data="skip_images")]
-    ])
+    await state.set_state(ImageGenerationStates.waiting_for_prompt)
     
     await message.answer(
-        messages.GENERATE_START.format(max_images=MAX_IMAGES_PER_REQUEST),
-        reply_markup=keyboard
+        messages.GENERATE_START_UNIFIED.format(max_images=MAX_IMAGES_PER_REQUEST),
+        parse_mode="HTML"
     )
 
 
