@@ -5,6 +5,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from .config import BOT_TOKEN, logger
 from .handlers import command_router, image_router, generation_router, payment_router
 from .database import setup_database
+from .middleware.rate_limit import RateLimitMiddleware, GenerationRateLimitMiddleware
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -14,6 +15,13 @@ async def main():
     """Главная функция"""
     # Инициализируем базу данных
     await setup_database()
+    
+    # Добавляем middleware
+    dp.message.middleware(RateLimitMiddleware(rate_limit=30, window_seconds=60))
+    dp.callback_query.middleware(RateLimitMiddleware(rate_limit=30, window_seconds=60))
+    
+    # Специальный rate limit для генерации
+    generation_router.message.middleware(GenerationRateLimitMiddleware())
     
     # Регистрируем роутеры
     dp.include_router(command_router)

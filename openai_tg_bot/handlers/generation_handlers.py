@@ -3,10 +3,11 @@ from aiogram.types import Message, ContentType, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 
 from ..states import ImageGenerationStates
-from ..config import TEST_MODE, logger, GENERATION_PRICE
+from ..config import TEST_MODE, logger, GENERATION_PRICE, MAX_PROMPT_LENGTH, OPENAI_CONCURRENT_LIMIT
 from ..services.payment_service import payment_service
 from ..services.telegram_service import download_image
-from ..services.openai_service import generate_image
+from ..services.openai_service import generate_image, GenerationError, generation_semaphore
+from .. import messages
 
 generation_router = Router()
 
@@ -17,16 +18,17 @@ async def handle_prompt(message: Message, state: FSMContext):
     prompt = message.text.strip()
     
     # Валидация промпта
-    if len(prompt) > 1000:
+    if len(prompt) > MAX_PROMPT_LENGTH:
         await message.answer(
-            f"❌ Промпт слишком длинный!\n"
-            f"Максимум: 1000 символов\n"
-            f"Ваш промпт: {len(prompt)} символов"
+            messages.PROMPT_TOO_LONG.format(
+                max_length=MAX_PROMPT_LENGTH,
+                current_length=len(prompt)
+            )
         )
         return
     
     if len(prompt) < 3:
-        await message.answer("❌ Промпт слишком короткий. Минимум 3 символа.")
+        await message.answer(messages.PROMPT_TOO_SHORT)
         return
     
     await state.update_data(prompt=prompt)
@@ -47,8 +49,7 @@ async def handle_prompt(message: Message, state: FSMContext):
         if TEST_MODE:
             # Тестовый режим - сразу на генерацию
             await message.answer(
-                "🧪 <b>ТЕСТОВЫЙ РЕЖИМ</b>\n"
-                "Оплата пропущена для тестирования!",
+                messages.TEST_MODE_MESSAGE,
                 parse_mode="HTML"
             )
             await process_generation(message, state, session_id)
@@ -66,7 +67,7 @@ async def handle_prompt(message: Message, state: FSMContext):
         await message.answer(f"❌ {str(e)}")
     except Exception as e:
         logger.error(f"Ошибка создания сессии: {e}")
-        await message.answer("❌ Произошла ошибка. Попробуйте позже.")
+        await message.answer(messages.ERROR_SESSION_CREATE)
 
 @generation_router.message(F.successful_payment)
 async def process_successful_payment(message: Message, state: FSMContext):
@@ -83,7 +84,7 @@ async def process_successful_payment(message: Message, state: FSMContext):
         amount=GENERATION_PRICE
     )
     
-    await message.answer("✅ Оплата получена!")
+    await message.answer(messages.PAYMENT_RECEIVED)
     await process_generation(message, state, session_id)
 
 
@@ -91,14 +92,18 @@ async def process_generation(message: Message, state: FSMContext, session_id: st
     """Выполнить генерацию изображения"""
     session = await payment_service.get_session(session_id)
     if not session:
-        await message.answer("❌ Ошибка: сессия не найдена")
+        await message.answer(messages.ERROR_SESSION_NOT_FOUND)
         await state.clear()
         return
     
-    await message.answer(
-        "✅ Начинаю генерацию изображения...\n"
-        "🎨 Это может занять 30-60 секунд"
-    )
+    # Проверяем очередь
+    queue_position = OPENAI_CONCURRENT_LIMIT - generation_semaphore._value
+    if queue_position > 0:
+        await message.answer(
+            messages.GENERATION_QUEUED.format(position=queue_position)
+        )
+    else:
+        await message.answer(messages.GENERATION_STARTED)
     
     try:
         # Скачиваем изображения если есть
@@ -112,12 +117,17 @@ async def process_generation(message: Message, state: FSMContext, session_id: st
         result_image = await generate_image(session['prompt'], input_images)
         
         # Отправляем результат
+        footer = (
+            messages.GENERATION_SUCCESS_FOOTER_TEST 
+            if TEST_MODE 
+            else messages.GENERATION_SUCCESS_FOOTER_PAID
+        )
+        
         await message.answer_photo(
             photo=BufferedInputFile(result_image, filename="generated.png"),
-            caption=(
-                f"✨ <b>Готово!</b>\n\n"
-                f"<b>Промпт:</b> {session['prompt']}\n\n"
-                f"<i>{'🧪 Тестовый режим' if TEST_MODE else 'Спасибо за покупку!'}</i>"
+            caption=messages.GENERATION_SUCCESS.format(
+                prompt=session['prompt'],
+                footer=footer
             ),
             parse_mode="HTML"
         )
@@ -126,8 +136,25 @@ async def process_generation(message: Message, state: FSMContext, session_id: st
         await payment_service.delete_session(session_id)
         await state.clear()
         
+    except GenerationError as e:
+        # Показываем пользователю понятное сообщение об ошибке
+        logger.error(f"Ошибка генерации для сессии {session_id}: {e}")
+        
+        if not TEST_MODE and session.get('payment_charge_id'):
+            await message.answer(f"❌ {str(e)}")
+            await payment_service.process_payment_error(
+                message.bot,
+                message,
+                session_id,
+                e
+            )
+        else:
+            await message.answer(f"❌ {str(e)}")
+        
+        await state.clear()
+        
     except Exception as e:
-        logger.error(f"Ошибка при генерации для сессии {session_id}: {e}")
+        logger.error(f"Неожиданная ошибка при генерации для сессии {session_id}: {e}")
         
         # Обрабатываем ошибку с автоматическим возвратом
         if not TEST_MODE and session.get('payment_charge_id'):
@@ -138,16 +165,11 @@ async def process_generation(message: Message, state: FSMContext, session_id: st
                 e
             )
         else:
-            await message.answer(
-                "❌ Произошла ошибка при генерации.\n"
-                "Попробуйте еще раз."
-            )
+            await message.answer(messages.ERROR_GENERATION_GENERIC)
         
         await state.clear()
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt)
 async def wrong_content_prompt(message: Message):
     """Обработка неверного типа контента при ожидании промпта"""
-    await message.answer(
-        "❌ Пожалуйста, отправьте текстовое описание"
-    )
+    await message.answer(messages.WRONG_CONTENT_PROMPT)

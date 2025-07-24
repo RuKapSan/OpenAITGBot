@@ -4,8 +4,9 @@ from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 
 from ..states import ImageGenerationStates
-from ..config import logger, ADMIN_ID
+from ..config import logger, ADMIN_ID, GENERATION_PRICE, MAX_IMAGES_PER_REQUEST
 from ..services.payment_service import payment_service
+from .. import messages
 
 command_router = Router()
 
@@ -13,32 +14,17 @@ command_router = Router()
 async def start_command(message: Message):
     """Обработчик команды /start"""
     await message.answer(
-        "🎨 Добро пожаловать в бот генерации изображений!\n\n"
-        "Этот бот может:\n"
-        "• Генерировать новые изображения по текстовому описанию\n"
-        "• Редактировать и комбинировать ваши фотографии\n\n"
-        "💰 Стоимость: 20 Stars за генерацию\n\n"
-        "Команды:\n"
-        "/generate - Начать генерацию\n"
-        "/help - Подробная инструкция"
+        messages.START_MESSAGE.format(price=GENERATION_PRICE)
     )
 
 @command_router.message(Command("help"))
 async def help_command(message: Message):
     """Подробная инструкция"""
     await message.answer(
-        "📖 <b>Как использовать бот:</b>\n\n"
-        "1️⃣ Нажмите /generate\n"
-        "2️⃣ Отправьте от 1 до 3 изображений (опционально)\n"
-        "3️⃣ Напишите текстовое описание того, что хотите получить\n"
-        "4️⃣ Оплатите 20 Stars\n"
-        "5️⃣ Получите результат!\n\n"
-        "<b>Примеры промптов:</b>\n"
-        "• \"Сделай фото в стиле аниме\"\n"
-        "• \"Добавь космический фон\"\n"
-        "• \"Объедини эти фото в одну композицию\"\n"
-        "• \"Нарисуй кота в костюме астронавта\"\n\n"
-        "<i>💡 Чем подробнее описание, тем лучше результат!</i>",
+        messages.HELP_MESSAGE.format(
+            max_images=MAX_IMAGES_PER_REQUEST,
+            price=GENERATION_PRICE
+        ),
         parse_mode="HTML"
     )
 
@@ -49,12 +35,11 @@ async def generate_command(message: Message, state: FSMContext):
     await state.set_state(ImageGenerationStates.waiting_for_images)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пропустить и перейти к описанию ➡️", callback_data="skip_images")]
+        [InlineKeyboardButton(text=messages.SKIP_IMAGES_BUTTON, callback_data="skip_images")]
     ])
     
     await message.answer(
-        "🖼 Отправьте от 1 до 3 изображений для редактирования.\n\n"
-        "Или нажмите кнопку ниже, чтобы сгенерировать изображение с нуля:",
+        messages.GENERATE_START.format(max_images=MAX_IMAGES_PER_REQUEST),
         reply_markup=keyboard
     )
 
@@ -63,13 +48,7 @@ async def generate_command(message: Message, state: FSMContext):
 async def cmd_paysupport(message: Message):
     """Поддержка по платежам"""
     await message.answer(
-        "💬 <b>Поддержка по платежам</b>\n\n"
-        "Если у вас возникли проблемы с генерацией после оплаты:\n"
-        "1. Сохраните ID платежа из сообщения об оплате\n"
-        "2. Напишите в поддержку: @your_support_bot\n"
-        "3. Укажите ID платежа и опишите проблему\n\n"
-        "Возврат осуществляется в течение 24 часов.\n"
-        "Stars вернутся на ваш баланс в Telegram.",
+        messages.PAYMENT_SUPPORT_MESSAGE,
         parse_mode="HTML"
     )
 
@@ -78,15 +57,12 @@ async def cmd_paysupport(message: Message):
 async def cmd_refund(message: Message):
     """Ручной возврат платежа (только для админа)"""
     if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ У вас нет прав для выполнения этой команды")
+        await message.answer(messages.REFUND_NO_PERMISSION)
         return
     
     args = message.text.split()
     if len(args) != 3:
-        await message.answer(
-            "Использование: /refund <user_id> <payment_charge_id>\n"
-            "Пример: /refund 123456789 payment_12345"
-        )
+        await message.answer(messages.REFUND_USAGE)
         return
     
     try:
@@ -100,12 +76,12 @@ async def cmd_refund(message: Message):
         )
         
         if success:
-            await message.answer(f"✅ {msg}")
+            await message.answer(messages.REFUND_SUCCESS.format(message=msg))
         else:
-            await message.answer(f"❌ {msg}")
+            await message.answer(messages.REFUND_ERROR.format(message=msg))
             
     except ValueError:
-        await message.answer("❌ Неверный формат user_id")
+        await message.answer(messages.REFUND_INVALID_USER_ID)
     except Exception as e:
         logger.error(f"Ошибка при ручном возврате: {e}")
         await message.answer(f"❌ Ошибка: {str(e)}")
