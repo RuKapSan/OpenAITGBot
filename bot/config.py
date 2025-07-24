@@ -35,10 +35,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # ID админа для команд управления
 
-GENERATION_PRICE = 20  # Stars
-MAX_IMAGES_PER_REQUEST = 3  # Максимум изображений для редактирования
-MAX_PROMPT_LENGTH = 1000  # Максимальная длина промпта
-OPENAI_CONCURRENT_LIMIT = 5  # Лимит одновременных запросов к OpenAI API
+GENERATION_PRICE = int(os.getenv("GENERATION_PRICE", "20"))  # Stars
+MAX_IMAGES_PER_REQUEST = int(os.getenv("MAX_IMAGES_PER_REQUEST", "3"))  # Максимум изображений для редактирования
+MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "1000"))  # Максимальная длина промпта
+OPENAI_CONCURRENT_LIMIT = int(os.getenv("OPENAI_CONCURRENT_LIMIT", "5"))  # Лимит одновременных запросов к OpenAI API
 
 # URL для изображения в инвойсе
 INVOICE_PHOTO_URL = os.getenv(
