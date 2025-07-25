@@ -169,6 +169,16 @@ async def process_successful_payment(message: Message, state: FSMContext) -> Non
             f"🎨 Начинаю генерацию..."
         )
         
+        # Списываем 1 генерацию перед запуском
+        success = await balance_service.deduct_balance(message.from_user.id, 1)
+        if not success:
+            await message.answer(
+                "❌ Ошибка списания баланса. Попробуйте еще раз.",
+                reply_markup=get_reset_keyboard()
+            )
+            await state.clear()
+            return
+            
         # Запускаем отложенную генерацию
         await process_generation(message, state, session_id)
     else:

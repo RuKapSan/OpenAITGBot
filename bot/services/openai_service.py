@@ -14,6 +14,9 @@ class GenerationError(Exception):
 
 # Семафор для ограничения одновременных генераций
 generation_semaphore = asyncio.Semaphore(OPENAI_CONCURRENT_LIMIT)
+# Счётчик активных генераций с блокировкой
+active_generations = 0
+active_generations_lock = asyncio.Lock()
 
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
@@ -23,8 +26,14 @@ async def generate_image(prompt: str, input_images: Optional[List[bytes]] = None
     temp_files = []
     
     # Ограничиваем количество одновременных запросов
+    global active_generations
     async with generation_semaphore:
-        logger.info(f"Начало генерации. Активных запросов: {OPENAI_CONCURRENT_LIMIT - generation_semaphore._value}/{OPENAI_CONCURRENT_LIMIT}")
+        # Увеличиваем счётчик с блокировкой
+        async with active_generations_lock:
+            active_generations += 1
+            current_active = active_generations
+        
+        logger.info(f"Начало генерации. Активных запросов: {current_active}/{OPENAI_CONCURRENT_LIMIT}")
         
         try:
             if input_images:
@@ -45,6 +54,7 @@ async def generate_image(prompt: str, input_images: Optional[List[bytes]] = None
                         prompt=prompt,
                         n=1,
                         size="1024x1024",
+                        input_fidelity="high",
                         quality="high",
                         background="auto"
                     )
@@ -104,3 +114,7 @@ async def generate_image(prompt: str, input_images: Optional[List[bytes]] = None
                 except Exception:
                     # Оставляем Exception в finally блоке для гарантии завершения очистки
                     pass  # Игнорируем ошибки удаления
+            
+            # Уменьшаем счётчик с блокировкой
+            async with active_generations_lock:
+                active_generations -= 1
