@@ -45,17 +45,12 @@ class RateLimitMiddleware(BaseMiddleware):
             oldest_request = min(self.user_requests[user_id])
             wait_time = (oldest_request + self.window - now).total_seconds()
             
-            logger.warning(f"Rate limit для пользователя {user_id}")
+            logger.warning(f"Rate limit для пользователя {user_id}: ждать {int(wait_time)} сек")
             
-            if isinstance(event, Message):
-                await event.answer(
-                    messages.RATE_LIMIT_MESSAGE.format(wait_time=int(wait_time))
-                )
-            elif isinstance(event, CallbackQuery):
-                await event.answer(
-                    messages.RATE_LIMIT_CALLBACK.format(wait_time=int(wait_time)), 
-                    show_alert=True
-                )
+            # Тихо игнорируем запрос для CallbackQuery
+            if isinstance(event, CallbackQuery):
+                await event.answer()
+            
             return
         
         # Записываем новый запрос

@@ -48,29 +48,26 @@ GENERATION_PRICE = safe_int(os.getenv("GENERATION_PRICE", "20"), 20)  # Stars
 MAX_IMAGES_PER_REQUEST = safe_int(os.getenv("MAX_IMAGES_PER_REQUEST", "3"), 3)  # Максимум изображений для редактирования
 MAX_PROMPT_LENGTH = safe_int(os.getenv("MAX_PROMPT_LENGTH", "1000"), 1000)  # Максимальная длина промпта
 OPENAI_CONCURRENT_LIMIT = safe_int(os.getenv("OPENAI_CONCURRENT_LIMIT", "5"), 5)  # Лимит одновременных запросов к OpenAI API
+SESSION_EXPIRE_MINUTES = safe_int(os.getenv("SESSION_EXPIRE_MINUTES", "60"), 60)  # Время жизни сессии оплаты в минутах
 
 # Конфигурация пакетов генераций
 # Каждый пакет определяет количество генераций и цену в Stars
 PACKAGES = [
     {
         "size": safe_int(os.getenv("PACKAGE_1_SIZE", "1"), 1),
-        "price": safe_int(os.getenv("PACKAGE_1_PRICE", "20"), 20),
-        "discount": safe_int(os.getenv("PACKAGE_1_DISCOUNT", "0"), 0)
+        "price": safe_int(os.getenv("PACKAGE_1_PRICE", "20"), 20)
     },
     {
         "size": safe_int(os.getenv("PACKAGE_2_SIZE", "5"), 5),
-        "price": safe_int(os.getenv("PACKAGE_2_PRICE", "90"), 90),
-        "discount": safe_int(os.getenv("PACKAGE_2_DISCOUNT", "10"), 10)
+        "price": safe_int(os.getenv("PACKAGE_2_PRICE", "90"), 90)
     },
     {
         "size": safe_int(os.getenv("PACKAGE_3_SIZE", "10"), 10),
-        "price": safe_int(os.getenv("PACKAGE_3_PRICE", "160"), 160),
-        "discount": safe_int(os.getenv("PACKAGE_3_DISCOUNT", "20"), 20)
+        "price": safe_int(os.getenv("PACKAGE_3_PRICE", "160"), 160)
     },
     {
         "size": safe_int(os.getenv("PACKAGE_4_SIZE", "20"), 20),
-        "price": safe_int(os.getenv("PACKAGE_4_PRICE", "280"), 280),
-        "discount": safe_int(os.getenv("PACKAGE_4_DISCOUNT", "30"), 30)
+        "price": safe_int(os.getenv("PACKAGE_4_PRICE", "280"), 280)
     }
 ]
 

@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 from aiogram import Bot
 from aiogram.types import LabeledPrice, Message
 
-from ..config import GENERATION_PRICE, logger, payment_logger, TEST_MODE, MAX_PROMPT_LENGTH, INVOICE_PHOTO_URL
+from ..config import GENERATION_PRICE, logger, payment_logger, TEST_MODE, MAX_PROMPT_LENGTH, INVOICE_PHOTO_URL, SESSION_EXPIRE_MINUTES
 from .. import messages
 from ..repositories.base import SessionRepository, PaymentRepository
 from ..repositories.sqlite import SQLiteSessionRepository, SQLitePaymentRepository
@@ -26,7 +26,7 @@ class PaymentService:
         session_data = SessionCreate(user_id=user_id, images=images, prompt=prompt)
         
         # Очищаем старые сессии
-        await self.session_repo.cleanup_expired_sessions()
+        await self.session_repo.cleanup_expired_sessions(SESSION_EXPIRE_MINUTES)
         
         return await self.session_repo.create_session(
             session_data.user_id, 

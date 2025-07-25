@@ -24,11 +24,12 @@ async def main() -> None:
     await queue_service.restore_queue()
     
     # Добавляем middleware
-    dp.message.middleware(RateLimitMiddleware(rate_limit=30, window_seconds=60))
-    dp.callback_query.middleware(RateLimitMiddleware(rate_limit=30, window_seconds=60))
+    # Увеличиваем лимиты для защиты только от явного спама
+    dp.message.middleware(RateLimitMiddleware(rate_limit=100, window_seconds=60))  # 100 сообщений в минуту
+    dp.callback_query.middleware(RateLimitMiddleware(rate_limit=200, window_seconds=60))  # 200 нажатий кнопок в минуту
     
-    # Специальный rate limit для генерации
-    generation_router.message.middleware(GenerationRateLimitMiddleware())
+    # Специальный rate limit для генерации - убираем, так как у нас есть баланс
+    # generation_router.message.middleware(GenerationRateLimitMiddleware())
     
     # Регистрируем роутеры
     dp.include_router(command_router)

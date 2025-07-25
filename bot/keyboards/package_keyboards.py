@@ -2,7 +2,7 @@
 Клавиатуры для выбора пакетов генераций
 """
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from bot.config import PACKAGES
 
 
@@ -53,4 +53,25 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
     """Создает клавиатуру с кнопкой отмены"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_generation")]
+    ])
+
+
+def get_reset_keyboard() -> ReplyKeyboardMarkup:
+    """Создает обычную клавиатуру с кнопкой сброса"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔄 Начать заново")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+
+def get_retry_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline клавиатуру с кнопкой повтора"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🔄 Попробовать снова",
+            callback_data="retry_payment"
+        )]
     ])
