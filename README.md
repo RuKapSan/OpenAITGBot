@@ -134,26 +134,59 @@ python main.py
 
 ```
 OpenAITGBot/
-├── main.py                          # Точка входа
+├── main.py                          # Точка входа приложения
+├── README.md                        # Документация проекта
+├── pyproject.toml                   # Конфигурация Python проекта и зависимости
+├── uv.lock                          # Lock файл для UV package manager
+├── manage_migrations.py             # CLI утилита для управления миграциями БД
+├── .env                             # Конфигурация окружения (не в git)
+├── .gitignore                       # Настройки Git
+├── bot_data.db                      # SQLite база данных (создается автоматически)
+├── logs/
+│   └── payments.log                 # Логи платежных транзакций
 ├── bot/
-│   ├── __init__.py                  # Инициализация бота
-│   ├── config.py                    # Конфигурация
-│   ├── states.py                    # FSM состояния
-│   ├── database.py                  # Настройка БД
-│   ├── handlers/                    # Обработчики команд
-│   │   ├── command_handlers.py      # Основные команды
-│   │   ├── generation_handlers.py   # Генерация изображений
-│   │   ├── image_handlers.py        # Обработка изображений
-│   │   └── payment_handlers.py      # Обработка платежей
+│   ├── __init__.py                  # Инициализация бота, роутеров и middleware
+│   ├── config.py                    # Загрузка конфигурации и настроек
+│   ├── database.py                  # Инициализация БД и миграций
+│   ├── models.py                    # Pydantic модели для валидации данных
+│   ├── states.py                    # FSM состояния для управления диалогами
+│   ├── messages.py                  # Текстовые сообщения и шаблоны
+│   ├── handlers/                    # Обработчики запросов
+│   │   ├── __init__.py              # Экспорт всех роутеров
+│   │   ├── command_handlers.py      # Команды (/start, /help, /balance)
+│   │   ├── generation_handlers.py   # Процесс генерации изображений
+│   │   ├── image_handlers.py        # Обработка загруженных изображений
+│   │   └── payment_handlers.py      # Обработка платежей и покупок
 │   ├── services/                    # Бизнес-логика
-│   │   ├── openai_service.py        # Интеграция с OpenAI
-│   │   ├── payment_service.py       # Сервис платежей
-│   │   ├── balance_service.py       # Сервис управления балансом
-│   │   └── telegram_service.py      # Telegram утилиты
-│   └── repositories/                # Слой данных
-│       ├── base.py                  # Абстрактные репозитории
-│       └── sqlite.py                # SQLite реализация
-└── bot_data.db                      # База данных (создается автоматически)
+│   │   ├── __init__.py              # Инициализация сервисов
+│   │   ├── balance_service.py       # Управление балансом пользователей
+│   │   ├── openai_service.py        # Интеграция с OpenAI API
+│   │   ├── payment_service.py       # Обработка платежей и возвратов
+│   │   ├── queue_service.py         # Очередь генераций с rate limiting
+│   │   └── telegram_service.py      # Telegram-специфичные операции
+│   ├── repositories/                # Слой доступа к данным
+│   │   ├── __init__.py              # Инициализация репозиториев
+│   │   ├── base.py                  # Абстрактные базовые классы
+│   │   └── sqlite.py                # SQLite реализации репозиториев
+│   ├── middleware/                  # Промежуточное ПО
+│   │   ├── __init__.py              # Инициализация middleware
+│   │   └── rate_limit.py            # Rate limiting для защиты от спама
+│   ├── keyboards/                   # Telegram клавиатуры
+│   │   ├── __init__.py              # Инициализация клавиатур
+│   │   └── package_keyboards.py     # Inline клавиатуры для пакетов
+│   └── migrations/                  # Миграции базы данных
+│       ├── __init__.py              # Инициализация миграций
+│       ├── migration_system.py      # Система управления миграциями
+│       ├── m_001_initial_schema.py  # Начальная схема БД
+│       ├── m_002_add_generation_stats.py  # Статистика генераций
+│       ├── m_003_user_balances.py   # Система балансов пользователей
+│       ├── m_004_generation_queue.py # Таблицы очереди генераций
+│       └── m_005_optimize_queue_indices.py # Оптимизация индексов БД
+└── .claude/                         # Конфигурация Claude AI (локальная)
+    ├── settings.local.json          # Локальные настройки Claude
+    └── agents/                      # Конфигурации AI агентов
+        ├── code-reviewer.md         # Инструкции для code review агента
+        └── debugger.md              # Инструкции для debugging агента
 ```
 
 ## Система пакетов генераций
