@@ -126,6 +126,31 @@ wheels = [
 ]
 
 [[package]]
+name = "bot"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiogram" },
+    { name = "aiohttp" },
+    { name = "aiosqlite" },
+    { name = "openai" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiogram", specifier = ">=3.21.0" },
+    { name = "aiohttp", specifier = ">=3.12.14" },
+    { name = "aiosqlite", specifier = ">=0.20.0" },
+    { name = "openai", specifier = ">=1.97.1" },
+    { name = "pillow", specifier = ">=11.3.0" },
+    { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "python-dotenv", specifier = ">=1.1.1" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.7.14"
 source = { registry = "https://pypi.org/simple" }
@@ -348,29 +373,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a6/57/1c471f6b3efb879d26686d31582997615e969f3bb4458111c9705e56332e/openai-1.97.1.tar.gz", hash = "sha256:a744b27ae624e3d4135225da9b1c89c107a2a7e5bc4c93e5b7b5214772ce7a4e", size = 494267 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/35/412a0e9c3f0d37c94ed764b8ac7adae2d834dbd20e69f6aca582118e0f55/openai-1.97.1-py3-none-any.whl", hash = "sha256:4e96bbdf672ec3d44968c9ea39d2c375891db1acc1794668d8149d5fa6000606", size = 764380 },
-]
-
-[[package]]
-name = "openai-tg-bot"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiogram" },
-    { name = "aiohttp" },
-    { name = "aiosqlite" },
-    { name = "openai" },
-    { name = "pillow" },
-    { name = "python-dotenv" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiogram", specifier = ">=3.21.0" },
-    { name = "aiohttp", specifier = ">=3.12.14" },
-    { name = "aiosqlite", specifier = ">=0.20.0" },
-    { name = "openai", specifier = ">=1.97.1" },
-    { name = "pillow", specifier = ">=11.3.0" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
 ]
 
 [[package]]

@@ -2,15 +2,15 @@
 Сервис для управления балансами пользователей
 """
 
-from typing import Optional
 from ..repositories.base import BalanceRepository
 from ..config import logger, payment_logger
+from ..models import PackagePurchase
 
 
 class BalanceService:
     """Сервис для работы с балансами пользователей"""
     
-    def __init__(self, balance_repository: BalanceRepository):
+    def __init__(self, balance_repository: BalanceRepository) -> None:
         self.balance_repo = balance_repository
     
     async def get_balance(self, user_id: int) -> int:
@@ -64,10 +64,17 @@ class BalanceService:
     
     async def process_package_purchase(self, user_id: int, package_size: int, payment_charge_id: str) -> int:
         """Обработать покупку пакета генераций"""
+        # Валидируем данные покупки
+        purchase_data = PackagePurchase(
+            user_id=user_id,
+            package_size=package_size,
+            payment_charge_id=payment_charge_id
+        )
+        
         new_balance = await self.add_balance(
-            user_id, 
-            package_size, 
-            f"Покупка пакета {package_size} генераций (payment_id: {payment_charge_id})"
+            purchase_data.user_id, 
+            purchase_data.package_size, 
+            f"Покупка пакета {purchase_data.package_size} генераций (payment_id: {purchase_data.payment_charge_id})"
         )
         
         logger.info(

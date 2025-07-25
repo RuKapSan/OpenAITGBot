@@ -5,25 +5,20 @@ from aiogram.fsm.context import FSMContext
 
 from ..states import ImageGenerationStates
 from ..config import logger, ADMIN_ID, GENERATION_PRICE, MAX_IMAGES_PER_REQUEST
-from ..services.payment_service import payment_service
-from ..services.balance_service import BalanceService
-from ..repositories.sqlite import SQLiteBalanceRepository
+from ..services import payment_service, balance_service
 from .. import messages
-
-# Инициализируем сервис баланса
-balance_service = BalanceService(SQLiteBalanceRepository())
 
 command_router = Router()
 
 @command_router.message(Command("start"))
-async def start_command(message: Message):
+async def start_command(message: Message) -> None:
     """Обработчик команды /start"""
     await message.answer(
         messages.START_MESSAGE.format(price=GENERATION_PRICE)
     )
 
 @command_router.message(Command("help"))
-async def help_command(message: Message):
+async def help_command(message: Message) -> None:
     """Подробная инструкция"""
     await message.answer(
         messages.HELP_MESSAGE.format(
@@ -34,7 +29,7 @@ async def help_command(message: Message):
     )
 
 @command_router.message(Command("generate"))
-async def generate_command(message: Message, state: FSMContext):
+async def generate_command(message: Message, state: FSMContext) -> None:
     """Начать процесс генерации"""
     await state.clear()
     await state.set_state(ImageGenerationStates.waiting_for_prompt)
@@ -46,7 +41,7 @@ async def generate_command(message: Message, state: FSMContext):
 
 
 @command_router.message(Command("balance"))
-async def balance_command(message: Message):
+async def balance_command(message: Message) -> None:
     """Проверить баланс генераций"""
     user_balance = await balance_service.get_balance(message.from_user.id)
     
@@ -68,7 +63,7 @@ async def balance_command(message: Message):
 
 
 @command_router.message(Command("paysupport"))
-async def cmd_paysupport(message: Message):
+async def cmd_paysupport(message: Message) -> None:
     """Поддержка по платежам"""
     await message.answer(
         messages.PAYMENT_SUPPORT_MESSAGE,
@@ -77,7 +72,7 @@ async def cmd_paysupport(message: Message):
 
 
 @command_router.message(Command("refund"))
-async def cmd_refund(message: Message):
+async def cmd_refund(message: Message) -> None:
     """Ручной возврат платежа (только для админа)"""
     if message.from_user.id != ADMIN_ID:
         await message.answer(messages.REFUND_NO_PERMISSION)
@@ -105,6 +100,6 @@ async def cmd_refund(message: Message):
             
     except ValueError:
         await message.answer(messages.REFUND_INVALID_USER_ID)
-    except Exception as e:
+    except (AttributeError, TypeError) as e:
         logger.error(f"Ошибка при ручном возврате: {e}")
-        await message.answer(f"❌ Ошибка: {str(e)}")
+        await message.answer(f"❌ Ошибка при обработке команды")

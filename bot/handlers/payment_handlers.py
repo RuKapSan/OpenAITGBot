@@ -1,12 +1,12 @@
 from aiogram import Router
 from aiogram.types import PreCheckoutQuery
 
-from ..services.payment_service import payment_service
+from ..services import payment_service
 
 payment_router = Router()
 
 @payment_router.pre_checkout_query()
-async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
     """Подтверждение готовности принять платеж"""
     session_id = pre_checkout_query.invoice_payload
     

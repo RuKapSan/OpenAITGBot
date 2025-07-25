@@ -4,22 +4,17 @@ from aiogram.fsm.context import FSMContext
 
 from ..states import ImageGenerationStates
 from ..config import TEST_MODE, logger, GENERATION_PRICE, MAX_PROMPT_LENGTH, OPENAI_CONCURRENT_LIMIT, MAX_IMAGES_PER_REQUEST
-from ..services.payment_service import payment_service
+from ..services import payment_service, balance_service
 from ..services.telegram_service import download_image
 from ..services.openai_service import generate_image, GenerationError, generation_semaphore
-from ..services.balance_service import BalanceService
 from ..keyboards.package_keyboards import get_package_keyboard
 from .. import messages
 
 generation_router = Router()
 
-# Инициализируем сервисы
-from ..repositories.sqlite import SQLiteBalanceRepository
-balance_service = BalanceService(SQLiteBalanceRepository())
-
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt, F.content_type == ContentType.PHOTO)
-async def handle_photo_only(message: Message, state: FSMContext):
+async def handle_photo_only(message: Message, state: FSMContext) -> None:
     """Обработка фото без текста в состоянии ожидания промпта"""
     data = await state.get_data()
     images = data.get('images', [])
@@ -47,7 +42,7 @@ async def handle_photo_only(message: Message, state: FSMContext):
             )
 
 
-async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: str):
+async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: str) -> None:
     """Общая логика обработки промпта с изображениями"""
     prompt = prompt.strip()
     
@@ -69,7 +64,6 @@ async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: s
     
     data = await state.get_data()
     images = data.get('images', [])
-    images_count = len(images)
     
     try:
         # Создаем сессию
@@ -110,26 +104,26 @@ async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: s
     
     except ValueError as e:
         await message.answer(f"❌ {str(e)}")
-    except Exception as e:
+    except (AttributeError, TypeError, KeyError) as e:
         logger.error(f"Ошибка создания сессии: {e}")
         await message.answer(messages.ERROR_SESSION_CREATE)
 
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt, F.content_type == ContentType.TEXT)
-async def handle_prompt(message: Message, state: FSMContext):
+async def handle_prompt(message: Message, state: FSMContext) -> None:
     """Обработка текстового промпта"""
     await handle_prompt_with_data(message, state, message.text)
 
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt)
-async def wrong_content_type(message: Message):
+async def wrong_content_type(message: Message) -> None:
     """Обработка неверного типа контента"""
     await message.answer(
         "❌ Пожалуйста, отправьте текстовое описание или фотографию с описанием."
     )
 
 @generation_router.message(F.successful_payment)
-async def process_successful_payment(message: Message, state: FSMContext):
+async def process_successful_payment(message: Message, state: FSMContext) -> None:
     """Обработка успешного платежа"""
     payment = message.successful_payment
     payload = payment.invoice_payload
@@ -182,7 +176,7 @@ async def process_successful_payment(message: Message, state: FSMContext):
         await process_generation(message, state, session_id)
 
 
-async def process_generation(message: Message, state: FSMContext, session_id: str):
+async def process_generation(message: Message, state: FSMContext, session_id: str) -> None:
     """Выполнить генерацию изображения"""
     session = await payment_service.get_session(session_id)
     if not session:
@@ -248,6 +242,7 @@ async def process_generation(message: Message, state: FSMContext, session_id: st
         await state.clear()
         
     except Exception as e:
+        # Ловим все остальные исключения для гарантии возврата платежа
         logger.error(f"Неожиданная ошибка при генерации для сессии {session_id}: {e}")
         
         # Обрабатываем ошибку с автоматическим возвратом
@@ -264,12 +259,12 @@ async def process_generation(message: Message, state: FSMContext, session_id: st
         await state.clear()
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt)
-async def wrong_content_prompt(message: Message):
+async def wrong_content_prompt(message: Message) -> None:
     """Обработка неверного типа контента при ожидании промпта"""
     await message.answer(messages.WRONG_CONTENT_PROMPT)
 
 
-async def show_package_options(message: Message):
+async def show_package_options(message: Message) -> None:
     """Показать варианты пакетов для покупки"""
     await message.answer(
         "💳 <b>У вас закончились генерации</b>\n\n"
@@ -281,7 +276,7 @@ async def show_package_options(message: Message):
 
 
 @generation_router.callback_query(ImageGenerationStates.choosing_package, F.data.startswith("package:"))
-async def handle_package_selection(callback: CallbackQuery, state: FSMContext):
+async def handle_package_selection(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработка выбора пакета"""
     await callback.answer()
     

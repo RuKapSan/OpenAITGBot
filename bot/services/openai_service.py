@@ -75,7 +75,8 @@ async def generate_image(prompt: str, input_images: Optional[List[bytes]] = None
                     error_data = e.response.json()
                     if error_data.get('error', {}).get('code') == 'moderation_blocked':
                         error_message = messages.OPENAI_ERROR_MODERATION
-                except:
+                except (ValueError, AttributeError, KeyError):
+                    # Игнорируем ошибки парсинга JSON или отсутствия атрибутов
                     pass
             
             # Проверяем другие типы ошибок по тексту
@@ -101,4 +102,5 @@ async def generate_image(prompt: str, input_images: Optional[List[bytes]] = None
                 try:
                     os.remove(temp_path)
                 except Exception:
+                    # Оставляем Exception в finally блоке для гарантии завершения очистки
                     pass  # Игнорируем ошибки удаления
