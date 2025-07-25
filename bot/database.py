@@ -6,7 +6,7 @@ from .migrations.migration_system import MigrationSystem
 from .config import logger
 
 
-async def setup_database():
+async def setup_database() -> None:
     """Настройка базы данных при запуске"""
     db_path = Path("bot_data.db")
     
@@ -20,7 +20,7 @@ async def setup_database():
         await init_database(str(db_path))
         
         logger.info(f"База данных настроена: {db_path.absolute()}")
-    except Exception as e:
+    except (IOError, OSError, RuntimeError) as e:
         logger.error(f"Ошибка настройки БД: {e}")
         raise
 

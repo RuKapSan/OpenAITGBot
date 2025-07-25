@@ -5,14 +5,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 
-from .base import SessionRepository, PaymentRepository
+from .base import SessionRepository, PaymentRepository, BalanceRepository
 from ..config import logger
 
 
 class SQLiteSessionRepository(SessionRepository):
     """SQLite реализация репозитория сессий"""
     
-    def __init__(self, db_path: str = "bot_data.db"):
+    def __init__(self, db_path: str = "bot_data.db") -> None:
         self.db_path = db_path
     
     async def create_session(self, user_id: int, images: List[str], prompt: str) -> str:
@@ -57,13 +57,15 @@ class SQLiteSessionRepository(SessionRepository):
     
     async def update_session(self, session_id: str, **kwargs) -> bool:
         """Обновить данные сессии"""
-        allowed_fields = ['status', 'payment_charge_id']
+        allowed_fields = {'status': 'status', 'payment_charge_id': 'payment_charge_id'}
         updates = []
         values = []
         
         for field, value in kwargs.items():
             if field in allowed_fields:
-                updates.append(f"{field} = ?")
+                # Используем только предопределенные имена полей из allowed_fields
+                safe_field = allowed_fields[field]
+                updates.append(f"{safe_field} = ?")
                 values.append(value)
         
         if not updates:
@@ -100,7 +102,7 @@ class SQLiteSessionRepository(SessionRepository):
 class SQLitePaymentRepository(PaymentRepository):
     """SQLite реализация репозитория платежей"""
     
-    def __init__(self, db_path: str = "bot_data.db"):
+    def __init__(self, db_path: str = "bot_data.db") -> None:
         self.db_path = db_path
     
     async def save_payment(
@@ -175,6 +177,92 @@ class SQLitePaymentRepository(PaymentRepository):
                 return [dict(row) for row in rows]
 
 
+class SQLiteBalanceRepository(BalanceRepository):
+    """SQLite реализация репозитория балансов"""
+    
+    def __init__(self, db_path: str = "bot_data.db") -> None:
+        self.db_path = db_path
+    
+    async def get_balance(self, user_id: int) -> int:
+        """Получить баланс пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row['balance']
+        return 0
+    
+    async def add_balance(self, user_id: int, amount: int) -> int:
+        """Добавить к балансу пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Сначала пытаемся обновить существующий баланс
+            cursor = await db.execute("""
+                UPDATE user_balances 
+                SET balance = balance + ?, updated_at = ?
+                WHERE user_id = ?
+            """, (amount, datetime.now().isoformat(), user_id))
+            
+            if cursor.rowcount == 0:
+                # Если записи нет, создаем новую
+                await db.execute("""
+                    INSERT INTO user_balances (user_id, balance, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """, (user_id, amount, datetime.now().isoformat(), datetime.now().isoformat()))
+            
+            await db.commit()
+            
+            # Возвращаем новый баланс
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else amount
+    
+    async def deduct_balance(self, user_id: int, amount: int) -> bool:
+        """Списать с баланса пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Проверяем текущий баланс
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row or row[0] < amount:
+                    return False
+            
+            # Списываем баланс
+            await db.execute("""
+                UPDATE user_balances 
+                SET balance = balance - ?, updated_at = ?
+                WHERE user_id = ? AND balance >= ?
+            """, (amount, datetime.now().isoformat(), user_id, amount))
+            
+            await db.commit()
+            return True
+    
+    async def create_or_get_balance(self, user_id: int) -> int:
+        """Создать баланс если не существует или вернуть существующий"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Проверяем существующий баланс
+            async with db.execute(
+                "SELECT balance FROM user_balances WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0]
+            
+            # Создаем новый баланс
+            await db.execute("""
+                INSERT INTO user_balances (user_id, balance, created_at, updated_at)
+                VALUES (?, 0, ?, ?)
+            """, (user_id, datetime.now().isoformat(), datetime.now().isoformat()))
+            await db.commit()
+            
+            return 0
+
+
 async def init_database(db_path: str = "bot_data.db"):
     """Инициализировать базу данных"""
     async with aiosqlite.connect(db_path) as db:
@@ -206,11 +294,22 @@ async def init_database(db_path: str = "bot_data.db"):
             )
         """)
         
+        # Таблица балансов пользователей
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_balances (
+                user_id INTEGER PRIMARY KEY,
+                balance INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        
         # Индексы для быстрого поиска
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_charge_id ON payments(payment_charge_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_user_balances_user_id ON user_balances(user_id)")
         
         await db.commit()
         

@@ -10,7 +10,7 @@ from .. import messages
 class RateLimitMiddleware(BaseMiddleware):
     """Middleware для ограничения частоты запросов"""
     
-    def __init__(self, rate_limit: int = 10, window_seconds: int = 60):
+    def __init__(self, rate_limit: int = 10, window_seconds: int = 60) -> None:
         """
         rate_limit: максимум запросов за период
         window_seconds: период в секундах
@@ -68,6 +68,6 @@ class RateLimitMiddleware(BaseMiddleware):
 class GenerationRateLimitMiddleware(RateLimitMiddleware):
     """Специальный rate limit для команды генерации"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         # 3 генерации в 5 минут
         super().__init__(rate_limit=3, window_seconds=300)

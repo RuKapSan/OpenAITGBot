@@ -6,6 +6,7 @@ from ..config import GENERATION_PRICE, logger, payment_logger, TEST_MODE, MAX_PR
 from .. import messages
 from ..repositories.base import SessionRepository, PaymentRepository
 from ..repositories.sqlite import SQLiteSessionRepository, SQLitePaymentRepository
+from ..models import SessionCreate, PaymentCreate
 
 
 class PaymentService:
@@ -21,14 +22,17 @@ class PaymentService:
     
     async def create_session(self, user_id: int, images: list, prompt: str) -> str:
         """Создать новую сессию генерации"""
-        # Ограничиваем длину промпта
-        if len(prompt) > MAX_PROMPT_LENGTH:
-            raise ValueError(f"Промпт слишком длинный (максимум {MAX_PROMPT_LENGTH} символов)")
+        # Валидируем данные через Pydantic
+        session_data = SessionCreate(user_id=user_id, images=images, prompt=prompt)
         
         # Очищаем старые сессии
         await self.session_repo.cleanup_expired_sessions()
         
-        return await self.session_repo.create_session(user_id, images, prompt)
+        return await self.session_repo.create_session(
+            session_data.user_id, 
+            session_data.images, 
+            session_data.prompt
+        )
     
     async def get_session(self, session_id: str) -> Optional[dict]:
         """Получить сессию по ID"""
@@ -66,6 +70,29 @@ class PaymentService:
             photo_height=512
         )
     
+    async def create_package_invoice(
+        self,
+        message: Message,
+        session_id: str,
+        package_size: int,
+        package_price: int
+    ):
+        """Создать инвойс для покупки пакета генераций"""
+        await message.bot.send_invoice(
+            chat_id=message.chat.id,
+            title=f"Пакет {package_size} генераций",
+            description=f"Покупка {package_size} генераций для создания изображений",
+            payload=f"package:{session_id}:{package_size}",
+            provider_token="",
+            currency="XTR",
+            prices=[
+                LabeledPrice(label=f"{package_size} генераций", amount=package_price)
+            ],
+            photo_url=INVOICE_PHOTO_URL,
+            photo_width=512,
+            photo_height=512
+        )
+    
     async def save_payment(
         self,
         session_id: str,
@@ -74,19 +101,27 @@ class PaymentService:
         amount: int = GENERATION_PRICE
     ) -> int:
         """Сохранить информацию о платеже"""
+        # Валидируем данные платежа
+        payment_data = PaymentCreate(
+            session_id=session_id,
+            user_id=user_id,
+            payment_charge_id=payment_charge_id,
+            amount=amount
+        )
+        
         # Обновляем сессию
         await self.session_repo.update_session(
-            session_id, 
+            payment_data.session_id, 
             status='paid',
-            payment_charge_id=payment_charge_id
+            payment_charge_id=payment_data.payment_charge_id
         )
         
         # Сохраняем платеж
         payment_id = await self.payment_repo.save_payment(
-            session_id=session_id,
-            user_id=user_id,
-            payment_charge_id=payment_charge_id,
-            amount=amount,
+            session_id=payment_data.session_id,
+            user_id=payment_data.user_id,
+            payment_charge_id=payment_data.payment_charge_id,
+            amount=payment_data.amount,
             status='completed'
         )
         
@@ -140,7 +175,7 @@ class PaymentService:
             
             return True, messages.REFUND_SUCCESS_MESSAGE
             
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.error(f"Ошибка возврата платежа {payment_charge_id}: {e}")
             
             # Логируем ошибку возврата
@@ -183,6 +218,3 @@ class PaymentService:
                 parse_mode="Markdown"
             )
 
-
-# Глобальный экземпляр сервиса
-payment_service = PaymentService()

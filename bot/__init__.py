@@ -11,7 +11,7 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-async def main():
+async def main() -> None:
     """Главная функция"""
     # Инициализируем базу данных
     await setup_database()
