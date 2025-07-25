@@ -185,20 +185,25 @@ async def process_queue_item(queue_item: Dict[str, Any]) -> None:
             
             # Обрабатываем возврат платежа если нужно
             if not TEST_MODE and session and session.get('payment_charge_id'):
-                # Создаем фейковый Message объект для совместимости
-                class FakeMessage:
-                    def __init__(self, bot, chat_id):
-                        self.bot = bot
-                        self.chat = type('obj', (object,), {'id': chat_id})
-                        self.from_user = type('obj', (object,), {'id': user_id})
-                
-                fake_msg = FakeMessage(bot_instance, user_id)
-                await payment_service.process_payment_error(
+                success, msg = await payment_service.process_payment_error_by_session(
                     bot_instance,
-                    fake_msg,
+                    user_id,
                     session_id,
                     e
                 )
+                if success:
+                    await bot_instance.send_message(
+                        chat_id=user_id,
+                        text=messages.ERROR_AUTO_REFUND_SUCCESS
+                    )
+                else:
+                    await bot_instance.send_message(
+                        chat_id=user_id,
+                        text=messages.ERROR_AUTO_REFUND_FAILED.format(
+                            payment_charge_id=session['payment_charge_id']
+                        ),
+                        parse_mode="Markdown"
+                    )
                 
     except Exception as e:
         logger.error(f"Неожиданная ошибка для queue_id={queue_id}: {e}")
@@ -213,19 +218,25 @@ async def process_queue_item(queue_item: Dict[str, Any]) -> None:
             
             # Обрабатываем возврат платежа если нужно
             if not TEST_MODE and session and session.get('payment_charge_id'):
-                class FakeMessage:
-                    def __init__(self, bot, chat_id):
-                        self.bot = bot
-                        self.chat = type('obj', (object,), {'id': chat_id})
-                        self.from_user = type('obj', (object,), {'id': user_id})
-                
-                fake_msg = FakeMessage(bot_instance, user_id)
-                await payment_service.process_payment_error(
+                success, msg = await payment_service.process_payment_error_by_session(
                     bot_instance,
-                    fake_msg,
+                    user_id,
                     session_id,
                     e
                 )
+                if success:
+                    await bot_instance.send_message(
+                        chat_id=user_id,
+                        text=messages.ERROR_AUTO_REFUND_SUCCESS
+                    )
+                else:
+                    await bot_instance.send_message(
+                        chat_id=user_id,
+                        text=messages.ERROR_AUTO_REFUND_FAILED.format(
+                            payment_charge_id=session['payment_charge_id']
+                        ),
+                        parse_mode="Markdown"
+                    )
                 
     finally:
         # Удаляем из активных задач

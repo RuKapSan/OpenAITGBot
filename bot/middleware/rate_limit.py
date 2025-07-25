@@ -2,9 +2,9 @@ from typing import Callable, Dict, Any, Awaitable
 from datetime import datetime, timedelta
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
+import asyncio
 
 from ..config import logger
-from .. import messages
 
 
 class RateLimitMiddleware(BaseMiddleware):
@@ -18,6 +18,8 @@ class RateLimitMiddleware(BaseMiddleware):
         self.rate_limit = rate_limit
         self.window = timedelta(seconds=window_seconds)
         self.user_requests: Dict[int, list[datetime]] = {}
+        self.cleanup_task = None
+        self._start_cleanup_task()
     
     async def __call__(
         self,
@@ -58,6 +60,43 @@ class RateLimitMiddleware(BaseMiddleware):
         
         # Передаем управление следующему обработчику
         return await handler(event, data)
+    
+    def _start_cleanup_task(self) -> None:
+        """Запускает фоновую задачу очистки"""
+        self.cleanup_task = asyncio.create_task(self._cleanup_loop())
+    
+    async def _cleanup_loop(self) -> None:
+        """Периодически очищает неактивных пользователей"""
+        while True:
+            try:
+                await asyncio.sleep(self.window.total_seconds() * 2)  # Чистим каждые 2 окна
+                await self._cleanup_inactive_users()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Ошибка при очистке rate limiter: {e}")
+    
+    async def _cleanup_inactive_users(self) -> None:
+        """Удаляет пользователей без активных запросов"""
+        now = datetime.now()
+        users_to_remove = []
+        
+        for user_id, requests in self.user_requests.items():
+            # Фильтруем старые запросы
+            active_requests = [req for req in requests if now - req < self.window]
+            
+            # Если нет активных запросов, помечаем для удаления
+            if not active_requests:
+                users_to_remove.append(user_id)
+            else:
+                self.user_requests[user_id] = active_requests
+        
+        # Удаляем неактивных пользователей
+        for user_id in users_to_remove:
+            del self.user_requests[user_id]
+        
+        if users_to_remove:
+            logger.debug(f"Очищено {len(users_to_remove)} неактивных пользователей из rate limiter")
 
 
 class GenerationRateLimitMiddleware(RateLimitMiddleware):

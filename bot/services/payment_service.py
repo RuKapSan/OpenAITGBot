@@ -217,4 +217,25 @@ class PaymentService:
                 ),
                 parse_mode="Markdown"
             )
+    
+    async def process_payment_error_by_session(
+        self,
+        bot: Bot,
+        user_id: int,
+        session_id: str,
+        error: Exception
+    ) -> tuple[bool, str]:
+        """Обработать ошибку после платежа без объекта Message"""
+        session = await self.get_session(session_id)
+        if not session or not session.get('payment_charge_id'):
+            return False, "Нет информации о платеже для возврата"
+        
+        # Пытаемся сделать возврат
+        success, msg = await self.refund_payment(
+            bot,
+            session['user_id'],
+            session['payment_charge_id']
+        )
+        
+        return success, msg
 
