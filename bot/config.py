@@ -6,6 +6,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def safe_int(value: str, default: int) -> int:
+    """Безопасно преобразует строку в целое число с валидацией"""
+    try:
+        result = int(value)
+        return max(0, result)  # Гарантируем неотрицательное значение
+    except (ValueError, TypeError):
+        return default
+
 # Настройка основного логгера
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,34 +42,35 @@ payment_logger.addHandler(payment_handler)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # ID админа для команд управления
+ADMIN_ID = safe_int(os.getenv("ADMIN_ID", "0"), 0)  # ID админа для команд управления
 
-GENERATION_PRICE = int(os.getenv("GENERATION_PRICE", "20"))  # Stars
-MAX_IMAGES_PER_REQUEST = int(os.getenv("MAX_IMAGES_PER_REQUEST", "3"))  # Максимум изображений для редактирования
-MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "1000"))  # Максимальная длина промпта
-OPENAI_CONCURRENT_LIMIT = int(os.getenv("OPENAI_CONCURRENT_LIMIT", "5"))  # Лимит одновременных запросов к OpenAI API
+GENERATION_PRICE = safe_int(os.getenv("GENERATION_PRICE", "20"), 20)  # Stars
+MAX_IMAGES_PER_REQUEST = safe_int(os.getenv("MAX_IMAGES_PER_REQUEST", "3"), 3)  # Максимум изображений для редактирования
+MAX_PROMPT_LENGTH = safe_int(os.getenv("MAX_PROMPT_LENGTH", "1000"), 1000)  # Максимальная длина промпта
+OPENAI_CONCURRENT_LIMIT = safe_int(os.getenv("OPENAI_CONCURRENT_LIMIT", "5"), 5)  # Лимит одновременных запросов к OpenAI API
 
 # Конфигурация пакетов генераций
+# Каждый пакет определяет количество генераций и цену в Stars
 PACKAGES = [
     {
-        "size": int(os.getenv("PACKAGE_1_SIZE", "1")),
-        "price": int(os.getenv("PACKAGE_1_PRICE", "20")),
-        "discount": int(os.getenv("PACKAGE_1_DISCOUNT", "0"))
+        "size": safe_int(os.getenv("PACKAGE_1_SIZE", "1"), 1),
+        "price": safe_int(os.getenv("PACKAGE_1_PRICE", "20"), 20),
+        "discount": safe_int(os.getenv("PACKAGE_1_DISCOUNT", "0"), 0)
     },
     {
-        "size": int(os.getenv("PACKAGE_2_SIZE", "5")),
-        "price": int(os.getenv("PACKAGE_2_PRICE", "90")),
-        "discount": int(os.getenv("PACKAGE_2_DISCOUNT", "10"))
+        "size": safe_int(os.getenv("PACKAGE_2_SIZE", "5"), 5),
+        "price": safe_int(os.getenv("PACKAGE_2_PRICE", "90"), 90),
+        "discount": safe_int(os.getenv("PACKAGE_2_DISCOUNT", "10"), 10)
     },
     {
-        "size": int(os.getenv("PACKAGE_3_SIZE", "10")),
-        "price": int(os.getenv("PACKAGE_3_PRICE", "160")),
-        "discount": int(os.getenv("PACKAGE_3_DISCOUNT", "20"))
+        "size": safe_int(os.getenv("PACKAGE_3_SIZE", "10"), 10),
+        "price": safe_int(os.getenv("PACKAGE_3_PRICE", "160"), 160),
+        "discount": safe_int(os.getenv("PACKAGE_3_DISCOUNT", "20"), 20)
     },
     {
-        "size": int(os.getenv("PACKAGE_4_SIZE", "20")),
-        "price": int(os.getenv("PACKAGE_4_PRICE", "280")),
-        "discount": int(os.getenv("PACKAGE_4_DISCOUNT", "30"))
+        "size": safe_int(os.getenv("PACKAGE_4_SIZE", "20"), 20),
+        "price": safe_int(os.getenv("PACKAGE_4_PRICE", "280"), 280),
+        "discount": safe_int(os.getenv("PACKAGE_4_DISCOUNT", "30"), 30)
     }
 ]
 
