@@ -6,6 +6,7 @@ from .config import BOT_TOKEN, logger
 from .handlers import command_router, image_router, generation_router, payment_router
 from .database import setup_database
 from .middleware.rate_limit import RateLimitMiddleware, GenerationRateLimitMiddleware
+from .services import queue_service
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -16,12 +17,19 @@ async def main() -> None:
     # Инициализируем базу данных
     await setup_database()
     
-    # Добавляем middleware
-    dp.message.middleware(RateLimitMiddleware(rate_limit=30, window_seconds=60))
-    dp.callback_query.middleware(RateLimitMiddleware(rate_limit=30, window_seconds=60))
+    # Инициализируем сервис очереди
+    queue_service.set_bot(bot)
     
-    # Специальный rate limit для генерации
-    generation_router.message.middleware(GenerationRateLimitMiddleware())
+    # Восстанавливаем очередь после перезапуска
+    await queue_service.restore_queue()
+    
+    # Добавляем middleware
+    # Увеличиваем лимиты для защиты только от явного спама
+    dp.message.middleware(RateLimitMiddleware(rate_limit=100, window_seconds=60))  # 100 сообщений в минуту
+    dp.callback_query.middleware(RateLimitMiddleware(rate_limit=200, window_seconds=60))  # 200 нажатий кнопок в минуту
+    
+    # Специальный rate limit для генерации - убираем, так как у нас есть баланс
+    # generation_router.message.middleware(GenerationRateLimitMiddleware())
     
     # Регистрируем роутеры
     dp.include_router(command_router)
@@ -29,9 +37,19 @@ async def main() -> None:
     dp.include_router(generation_router)
     dp.include_router(payment_router)
     
+    # Обработчик остановки
+    async def on_shutdown():
+        logger.info("Остановка бота...")
+        await queue_service.pause_queue()
+        await queue_service.cancel_all_tasks()
+        logger.info("Очередь остановлена")
+    
     # Запускаем бота
     logger.info("Бот запущен")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await on_shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())

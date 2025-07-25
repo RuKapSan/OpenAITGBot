@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, ContentType, BufferedInputFile, CallbackQuery
+from aiogram.types import Message, ContentType, BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 
 from ..states import ImageGenerationStates
@@ -7,7 +7,8 @@ from ..config import TEST_MODE, logger, GENERATION_PRICE, MAX_PROMPT_LENGTH, OPE
 from ..services import payment_service, balance_service
 from ..services.telegram_service import download_image
 from ..services.openai_service import generate_image, GenerationError, generation_semaphore
-from ..keyboards.package_keyboards import get_package_keyboard
+from ..services import queue_service
+from ..keyboards.package_keyboards import get_package_keyboard, get_reset_keyboard, get_retry_inline_keyboard
 from .. import messages
 
 generation_router = Router()
@@ -34,11 +35,13 @@ async def handle_photo_only(message: Message, state: FSMContext) -> None:
         
         if len(images) >= MAX_IMAGES_PER_REQUEST:
             await message.answer(
-                messages.IMAGES_MAX_REACHED.format(count=len(images))
+                messages.IMAGES_MAX_REACHED.format(count=len(images)),
+                reply_markup=get_reset_keyboard()
             )
         else:
             await message.answer(
-                f"📸 Загружено {len(images)}/{MAX_IMAGES_PER_REQUEST} изображений.\n\n✍️ Теперь отправьте текстовое описание:"
+                f"📸 Загружено {len(images)}/{MAX_IMAGES_PER_REQUEST} изображений.\n\n✍️ Теперь отправьте текстовое описание:",
+                reply_markup=get_reset_keyboard()
             )
 
 
@@ -78,7 +81,8 @@ async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: s
             # Тестовый режим - сразу на генерацию
             await message.answer(
                 messages.TEST_MODE_MESSAGE,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=get_reset_keyboard()
             )
             await process_generation(message, state, session_id)
         else:
@@ -90,12 +94,16 @@ async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: s
                 success = await balance_service.deduct_balance(message.from_user.id, 1)
                 if success:
                     await message.answer(
-                        f"✅ Списана 1 генерация. Осталось: {user_balance - 1}"
+                        f"✅ Списана 1 генерация. Осталось: {user_balance - 1}",
+                        reply_markup=get_reset_keyboard()
                     )
                     await process_generation(message, state, session_id)
                 else:
                     # Не удалось списать (параллельная транзакция?)
-                    await message.answer("❌ Ошибка списания баланса. Попробуйте еще раз.")
+                    await message.answer(
+                        "❌ Ошибка списания баланса. Попробуйте еще раз.",
+                        reply_markup=get_reset_keyboard()
+                    )
                     await state.clear()
             else:
                 # Нет баланса - показываем пакеты
@@ -103,10 +111,12 @@ async def handle_prompt_with_data(message: Message, state: FSMContext, prompt: s
                 await show_package_options(message)
     
     except ValueError as e:
-        await message.answer(f"❌ {str(e)}")
+        await message.answer(f"❌ {str(e)}", reply_markup=get_reset_keyboard())
+        await state.clear()
     except (AttributeError, TypeError, KeyError) as e:
         logger.error(f"Ошибка создания сессии: {e}")
-        await message.answer(messages.ERROR_SESSION_CREATE)
+        await message.answer(messages.ERROR_SESSION_CREATE, reply_markup=get_reset_keyboard())
+        await state.clear()
 
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt, F.content_type == ContentType.TEXT)
@@ -119,7 +129,8 @@ async def handle_prompt(message: Message, state: FSMContext) -> None:
 async def wrong_content_type(message: Message) -> None:
     """Обработка неверного типа контента"""
     await message.answer(
-        "❌ Пожалуйста, отправьте текстовое описание или фотографию с описанием."
+        "❌ Пожалуйста, отправьте текстовое описание или фотографию с описанием.",
+        reply_markup=get_reset_keyboard()
     )
 
 @generation_router.message(F.successful_payment)
@@ -158,6 +169,16 @@ async def process_successful_payment(message: Message, state: FSMContext) -> Non
             f"🎨 Начинаю генерацию..."
         )
         
+        # Списываем 1 генерацию перед запуском
+        success = await balance_service.deduct_balance(message.from_user.id, 1)
+        if not success:
+            await message.answer(
+                "❌ Ошибка списания баланса. Попробуйте еще раз.",
+                reply_markup=get_reset_keyboard()
+            )
+            await state.clear()
+            return
+            
         # Запускаем отложенную генерацию
         await process_generation(message, state, session_id)
     else:
@@ -177,86 +198,36 @@ async def process_successful_payment(message: Message, state: FSMContext) -> Non
 
 
 async def process_generation(message: Message, state: FSMContext, session_id: str) -> None:
-    """Выполнить генерацию изображения"""
+    """Добавить генерацию в очередь"""
     session = await payment_service.get_session(session_id)
     if not session:
         await message.answer(messages.ERROR_SESSION_NOT_FOUND)
         await state.clear()
         return
     
-    # Проверяем очередь
-    queue_position = OPENAI_CONCURRENT_LIMIT - generation_semaphore._value
-    if queue_position > 0:
+    # Добавляем в очередь
+    queue_id = await queue_service.add_to_queue(session_id, message.from_user.id)
+    
+    # Получаем позицию в очереди
+    queue_position = await queue_service.get_queue_position(session_id)
+    
+    if queue_position and queue_position > 1:
         await message.answer(
-            messages.GENERATION_QUEUED.format(position=queue_position)
+            messages.GENERATION_QUEUED.format(position=queue_position),
+            reply_markup=get_retry_inline_keyboard()
         )
     else:
         await message.answer(messages.GENERATION_STARTED)
     
-    try:
-        # Скачиваем изображения если есть
-        input_images = []
-        if session['images']:
-            for file_id in session['images']:
-                img_bytes = await download_image(message.bot, file_id)
-                input_images.append(img_bytes)
-        
-        # Генерируем изображение
-        result_image = await generate_image(session['prompt'], input_images)
-        
-        # Отправляем результат
-        footer = (
-            messages.GENERATION_SUCCESS_FOOTER_TEST 
-            if TEST_MODE 
-            else messages.GENERATION_SUCCESS_FOOTER_PAID
-        )
-        
-        await message.answer_photo(
-            photo=BufferedInputFile(result_image, filename="generated.png"),
-            caption=messages.GENERATION_SUCCESS.format(
-                prompt=session['prompt'],
-                footer=footer
-            ),
-            parse_mode="HTML"
-        )
-        
-        # Очищаем сессию
-        await payment_service.delete_session(session_id)
-        await state.clear()
-        
-    except GenerationError as e:
-        # Показываем пользователю понятное сообщение об ошибке
-        logger.error(f"Ошибка генерации для сессии {session_id}: {e}")
-        
-        if not TEST_MODE and session.get('payment_charge_id'):
-            await message.answer(f"❌ {str(e)}")
-            await payment_service.process_payment_error(
-                message.bot,
-                message,
-                session_id,
-                e
-            )
-        else:
-            await message.answer(f"❌ {str(e)}")
-        
-        await state.clear()
-        
-    except Exception as e:
-        # Ловим все остальные исключения для гарантии возврата платежа
-        logger.error(f"Неожиданная ошибка при генерации для сессии {session_id}: {e}")
-        
-        # Обрабатываем ошибку с автоматическим возвратом
-        if not TEST_MODE and session.get('payment_charge_id'):
-            await payment_service.process_payment_error(
-                message.bot,
-                message,
-                session_id,
-                e
-            )
-        else:
-            await message.answer(messages.ERROR_GENERATION_GENERIC)
-        
-        await state.clear()
+    # Сохраняем информацию о сообщении для последующей отправки результата
+    await state.update_data(
+        queue_id=queue_id,
+        chat_id=message.chat.id,
+        session_id=session_id
+    )
+    
+    # Очищаем состояние FSM но не удаляем сессию - она будет удалена после генерации
+    await state.set_state(None)
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt)
 async def wrong_content_prompt(message: Message) -> None:
@@ -273,6 +244,26 @@ async def show_package_options(message: Message) -> None:
         reply_markup=get_package_keyboard(),
         parse_mode="HTML"
     )
+    # Добавляем кнопку сброса
+    await message.answer(
+        "Если хотите начать заново, используйте кнопку ниже:",
+        reply_markup=get_reset_keyboard()
+    )
+
+
+@generation_router.callback_query(F.data == "retry_payment")
+async def handle_retry_payment(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработка повторной попытки оплаты после истечения сессии"""
+    await callback.answer()
+    
+    # Устанавливаем состояние выбора пакета
+    await state.set_state(ImageGenerationStates.choosing_package)
+    
+    # Показываем пакеты снова
+    await callback.message.edit_text(
+        "💎 Выберите пакет генераций:",
+        reply_markup=get_package_keyboard()
+    )
 
 
 @generation_router.callback_query(ImageGenerationStates.choosing_package, F.data.startswith("package:"))
@@ -284,7 +275,16 @@ async def handle_package_selection(callback: CallbackQuery, state: FSMContext) -
     parts = callback.data.split(":")
     
     if parts[1] == "cancel":
-        await callback.message.edit_text("❌ Генерация отменена")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🔄 Попробовать снова",
+                callback_data="retry_payment"
+            )]
+        ])
+        await callback.message.edit_text(
+            "❌ Генерация отменена\n\nВы можете попробовать снова, нажав кнопку ниже.",
+            reply_markup=keyboard
+        )
         await state.clear()
         return
     
@@ -307,7 +307,11 @@ async def handle_package_selection(callback: CallbackQuery, state: FSMContext) -
     )
     
     # Создаем инвойс для пакета
-    await callback.message.edit_text(f"Создаю инвойс для пакета {package_size} генераций...")
+    await callback.message.edit_text(
+        f"Создаю инвойс для пакета {package_size} генераций...\n\n"
+        "Если передумали, можете начать заново.",
+        reply_markup=get_retry_inline_keyboard()
+    )
     
     # Переходим в состояние ожидания оплаты
     await state.set_state(ImageGenerationStates.waiting_for_payment)

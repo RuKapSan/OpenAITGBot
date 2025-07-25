@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 from aiogram import Bot
 from aiogram.types import LabeledPrice, Message
 
-from ..config import GENERATION_PRICE, logger, payment_logger, TEST_MODE, MAX_PROMPT_LENGTH, INVOICE_PHOTO_URL
+from ..config import GENERATION_PRICE, logger, payment_logger, TEST_MODE, MAX_PROMPT_LENGTH, INVOICE_PHOTO_URL, SESSION_EXPIRE_MINUTES
 from .. import messages
 from ..repositories.base import SessionRepository, PaymentRepository
 from ..repositories.sqlite import SQLiteSessionRepository, SQLitePaymentRepository
@@ -26,7 +26,7 @@ class PaymentService:
         session_data = SessionCreate(user_id=user_id, images=images, prompt=prompt)
         
         # Очищаем старые сессии
-        await self.session_repo.cleanup_expired_sessions()
+        await self.session_repo.cleanup_expired_sessions(SESSION_EXPIRE_MINUTES)
         
         return await self.session_repo.create_session(
             session_data.user_id, 
@@ -217,4 +217,25 @@ class PaymentService:
                 ),
                 parse_mode="Markdown"
             )
+    
+    async def process_payment_error_by_session(
+        self,
+        bot: Bot,
+        user_id: int,
+        session_id: str,
+        error: Exception
+    ) -> tuple[bool, str]:
+        """Обработать ошибку после платежа без объекта Message"""
+        session = await self.get_session(session_id)
+        if not session or not session.get('payment_charge_id'):
+            return False, "Нет информации о платеже для возврата"
+        
+        # Пытаемся сделать возврат
+        success, msg = await self.refund_payment(
+            bot,
+            session['user_id'],
+            session['payment_charge_id']
+        )
+        
+        return success, msg
 

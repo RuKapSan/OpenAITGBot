@@ -1,6 +1,6 @@
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
 from ..states import ImageGenerationStates
@@ -34,9 +34,12 @@ async def generate_command(message: Message, state: FSMContext) -> None:
     await state.clear()
     await state.set_state(ImageGenerationStates.waiting_for_prompt)
     
+    from ..keyboards.package_keyboards import get_reset_keyboard
+    
     await message.answer(
         messages.GENERATE_START_UNIFIED.format(max_images=MAX_IMAGES_PER_REQUEST),
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=get_reset_keyboard()
     )
 
 
@@ -103,3 +106,14 @@ async def cmd_refund(message: Message) -> None:
     except (AttributeError, TypeError) as e:
         logger.error(f"Ошибка при ручном возврате: {e}")
         await message.answer(f"❌ Ошибка при обработке команды")
+
+
+@command_router.message(F.text == "🔄 Начать заново")
+async def reset_state(message: Message, state: FSMContext) -> None:
+    """Сброс состояния и начало заново"""
+    await state.clear()
+    await message.answer(
+        "✅ Состояние сброшено. Вы можете начать заново.\n\n"
+        "Используйте /generate для создания нового изображения.",
+        reply_markup=ReplyKeyboardRemove()
+    )

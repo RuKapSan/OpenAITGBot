@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 
-from .base import SessionRepository, PaymentRepository, BalanceRepository
+from .base import SessionRepository, PaymentRepository, BalanceRepository, QueueRepository
 from ..config import logger
 
 
@@ -261,6 +261,145 @@ class SQLiteBalanceRepository(BalanceRepository):
             await db.commit()
             
             return 0
+
+
+class SQLiteQueueRepository(QueueRepository):
+    """SQLite реализация репозитория очереди генераций"""
+    
+    def __init__(self, db_path: str = "bot_data.db") -> None:
+        self.db_path = db_path
+    
+    async def add_to_queue(self, session_id: str, user_id: int, priority: int = 0) -> int:
+        """Добавить задачу в очередь"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                INSERT INTO generation_queue (session_id, user_id, priority, status, created_at)
+                VALUES (?, ?, ?, 'pending', ?)
+            """, (session_id, user_id, priority, datetime.now().isoformat()))
+            await db.commit()
+            return cursor.lastrowid
+    
+    async def get_next_in_queue(self) -> Optional[Dict[str, Any]]:
+        """Получить следующую задачу из очереди"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            # Атомарно получаем и блокируем следующий элемент
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute("""
+                    SELECT id, session_id, user_id, priority, created_at 
+                    FROM generation_queue 
+                    WHERE status = 'pending'
+                    ORDER BY priority DESC, created_at ASC
+                    LIMIT 1
+                """) as cursor:
+                    row = await cursor.fetchone()
+                    
+                if row:
+                    # Сразу помечаем как processing чтобы другие процессы не взяли
+                    await db.execute("""
+                        UPDATE generation_queue 
+                        SET status = 'processing', started_at = ?
+                        WHERE id = ? AND status = 'pending'
+                    """, (datetime.now().isoformat(), row['id']))
+                    
+                    if db.total_changes > 0:
+                        await db.commit()
+                        return dict(row)
+                    
+                await db.rollback()
+                return None
+                
+            except Exception:
+                await db.rollback()
+                raise
+    
+    async def update_queue_status(self, queue_id: int, status: str, error_message: Optional[str] = None) -> bool:
+        """Обновить статус задачи в очереди"""
+        async with aiosqlite.connect(self.db_path) as db:
+            if status == 'processing':
+                await db.execute("""
+                    UPDATE generation_queue 
+                    SET status = ?, started_at = ?
+                    WHERE id = ?
+                """, (status, datetime.now().isoformat(), queue_id))
+            elif status == 'completed':
+                await db.execute("""
+                    UPDATE generation_queue 
+                    SET status = ?, completed_at = ?
+                    WHERE id = ?
+                """, (status, datetime.now().isoformat(), queue_id))
+            elif status == 'failed':
+                await db.execute("""
+                    UPDATE generation_queue 
+                    SET status = ?, error_message = ?, completed_at = ?
+                    WHERE id = ?
+                """, (status, error_message, datetime.now().isoformat(), queue_id))
+            else:
+                await db.execute("""
+                    UPDATE generation_queue 
+                    SET status = ?
+                    WHERE id = ?
+                """, (status, queue_id))
+            await db.commit()
+            return True
+    
+    async def get_queue_position(self, session_id: str) -> Optional[int]:
+        """Получить позицию в очереди"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Используем оконную функцию для эффективного подсчета позиции
+            async with db.execute("""
+                WITH queue_positions AS (
+                    SELECT 
+                        session_id,
+                        ROW_NUMBER() OVER (
+                            ORDER BY priority DESC, created_at ASC
+                        ) as position
+                    FROM generation_queue
+                    WHERE status = 'pending'
+                )
+                SELECT position FROM queue_positions
+                WHERE session_id = ?
+            """, (session_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0]
+        return None
+    
+    async def get_pending_count(self) -> int:
+        """Получить количество задач в очереди"""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("""
+                SELECT COUNT(*) FROM generation_queue 
+                WHERE status = 'pending'
+            """) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+    
+    async def get_user_queue_items(self, user_id: int) -> List[Dict[str, Any]]:
+        """Получить задачи пользователя в очереди"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT * FROM generation_queue 
+                WHERE user_id = ? AND status IN ('pending', 'processing')
+                ORDER BY created_at DESC
+            """, (user_id,)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+    
+    async def cleanup_stale_items(self, timeout_minutes: int = 30) -> int:
+        """Очистить зависшие задачи"""
+        timeout_time = (datetime.now() - timedelta(minutes=timeout_minutes)).isoformat()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                UPDATE generation_queue 
+                SET status = 'failed', error_message = 'Timeout', completed_at = ?
+                WHERE status = 'processing' AND started_at < ?
+            """, (datetime.now().isoformat(), timeout_time))
+            await db.commit()
+            return cursor.rowcount
 
 
 async def init_database(db_path: str = "bot_data.db"):
