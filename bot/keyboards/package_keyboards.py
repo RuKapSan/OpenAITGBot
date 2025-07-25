@@ -3,32 +3,38 @@
 """
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from bot.config import PACKAGES
 
 
 def get_package_keyboard() -> InlineKeyboardMarkup:
     """Создает клавиатуру с пакетами генераций"""
-    buttons = [
-        [InlineKeyboardButton(
-            text="🎯 1 генерация - 20 Stars",
-            callback_data="package:1:20"
-        )],
-        [InlineKeyboardButton(
-            text="🎨 5 генераций - 90 Stars (скидка 10%)",
-            callback_data="package:5:90"
-        )],
-        [InlineKeyboardButton(
-            text="🎪 10 генераций - 160 Stars (скидка 20%)",
-            callback_data="package:10:160"
-        )],
-        [InlineKeyboardButton(
-            text="🚀 20 генераций - 280 Stars (скидка 30%)",
-            callback_data="package:20:280"
-        )],
-        [InlineKeyboardButton(
-            text="❌ Отмена",
-            callback_data="package:cancel"
-        )]
-    ]
+    buttons = []
+    
+    # Эмоджи для пакетов
+    emojis = ["🎯", "🎨", "🎪", "🚀"]
+    
+    # Создаем кнопки из конфигурации
+    for i, package in enumerate(PACKAGES):
+        size = package["size"]
+        price = package["price"]
+        discount = package["discount"]
+        
+        # Формируем текст кнопки
+        if size == 1:
+            text = f"{emojis[i]} {size} генерация - {price} Stars"
+        else:
+            text = f"{emojis[i]} {size} генераций - {price} Stars"
+        
+        buttons.append([InlineKeyboardButton(
+            text=text,
+            callback_data=f"package:{size}:{price}"
+        )])
+    
+    # Добавляем кнопку отмены
+    buttons.append([InlineKeyboardButton(
+        text="❌ Отмена",
+        callback_data="package:cancel"
+    )])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

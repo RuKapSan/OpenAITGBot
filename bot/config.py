@@ -40,6 +40,30 @@ MAX_IMAGES_PER_REQUEST = int(os.getenv("MAX_IMAGES_PER_REQUEST", "3"))  # Мак
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "1000"))  # Максимальная длина промпта
 OPENAI_CONCURRENT_LIMIT = int(os.getenv("OPENAI_CONCURRENT_LIMIT", "5"))  # Лимит одновременных запросов к OpenAI API
 
+# Конфигурация пакетов генераций
+PACKAGES = [
+    {
+        "size": int(os.getenv("PACKAGE_1_SIZE", "1")),
+        "price": int(os.getenv("PACKAGE_1_PRICE", "20")),
+        "discount": int(os.getenv("PACKAGE_1_DISCOUNT", "0"))
+    },
+    {
+        "size": int(os.getenv("PACKAGE_2_SIZE", "5")),
+        "price": int(os.getenv("PACKAGE_2_PRICE", "90")),
+        "discount": int(os.getenv("PACKAGE_2_DISCOUNT", "10"))
+    },
+    {
+        "size": int(os.getenv("PACKAGE_3_SIZE", "10")),
+        "price": int(os.getenv("PACKAGE_3_PRICE", "160")),
+        "discount": int(os.getenv("PACKAGE_3_DISCOUNT", "20"))
+    },
+    {
+        "size": int(os.getenv("PACKAGE_4_SIZE", "20")),
+        "price": int(os.getenv("PACKAGE_4_PRICE", "280")),
+        "discount": int(os.getenv("PACKAGE_4_DISCOUNT", "30"))
+    }
+]
+
 # URL для изображения в инвойсе
 INVOICE_PHOTO_URL = os.getenv(
     "INVOICE_PHOTO_URL", 
