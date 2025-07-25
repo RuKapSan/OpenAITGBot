@@ -7,6 +7,7 @@ from ..config import TEST_MODE, logger, GENERATION_PRICE, MAX_PROMPT_LENGTH, OPE
 from ..services import payment_service, balance_service
 from ..services.telegram_service import download_image
 from ..services.openai_service import generate_image, GenerationError, generation_semaphore
+from ..services import queue_service
 from ..keyboards.package_keyboards import get_package_keyboard
 from .. import messages
 
@@ -177,86 +178,35 @@ async def process_successful_payment(message: Message, state: FSMContext) -> Non
 
 
 async def process_generation(message: Message, state: FSMContext, session_id: str) -> None:
-    """Выполнить генерацию изображения"""
+    """Добавить генерацию в очередь"""
     session = await payment_service.get_session(session_id)
     if not session:
         await message.answer(messages.ERROR_SESSION_NOT_FOUND)
         await state.clear()
         return
     
-    # Проверяем очередь
-    queue_position = OPENAI_CONCURRENT_LIMIT - generation_semaphore._value
-    if queue_position > 0:
+    # Добавляем в очередь
+    queue_id = await queue_service.add_to_queue(session_id, message.from_user.id)
+    
+    # Получаем позицию в очереди
+    queue_position = await queue_service.get_queue_position(session_id)
+    
+    if queue_position and queue_position > 1:
         await message.answer(
             messages.GENERATION_QUEUED.format(position=queue_position)
         )
     else:
         await message.answer(messages.GENERATION_STARTED)
     
-    try:
-        # Скачиваем изображения если есть
-        input_images = []
-        if session['images']:
-            for file_id in session['images']:
-                img_bytes = await download_image(message.bot, file_id)
-                input_images.append(img_bytes)
-        
-        # Генерируем изображение
-        result_image = await generate_image(session['prompt'], input_images)
-        
-        # Отправляем результат
-        footer = (
-            messages.GENERATION_SUCCESS_FOOTER_TEST 
-            if TEST_MODE 
-            else messages.GENERATION_SUCCESS_FOOTER_PAID
-        )
-        
-        await message.answer_photo(
-            photo=BufferedInputFile(result_image, filename="generated.png"),
-            caption=messages.GENERATION_SUCCESS.format(
-                prompt=session['prompt'],
-                footer=footer
-            ),
-            parse_mode="HTML"
-        )
-        
-        # Очищаем сессию
-        await payment_service.delete_session(session_id)
-        await state.clear()
-        
-    except GenerationError as e:
-        # Показываем пользователю понятное сообщение об ошибке
-        logger.error(f"Ошибка генерации для сессии {session_id}: {e}")
-        
-        if not TEST_MODE and session.get('payment_charge_id'):
-            await message.answer(f"❌ {str(e)}")
-            await payment_service.process_payment_error(
-                message.bot,
-                message,
-                session_id,
-                e
-            )
-        else:
-            await message.answer(f"❌ {str(e)}")
-        
-        await state.clear()
-        
-    except Exception as e:
-        # Ловим все остальные исключения для гарантии возврата платежа
-        logger.error(f"Неожиданная ошибка при генерации для сессии {session_id}: {e}")
-        
-        # Обрабатываем ошибку с автоматическим возвратом
-        if not TEST_MODE and session.get('payment_charge_id'):
-            await payment_service.process_payment_error(
-                message.bot,
-                message,
-                session_id,
-                e
-            )
-        else:
-            await message.answer(messages.ERROR_GENERATION_GENERIC)
-        
-        await state.clear()
+    # Сохраняем информацию о сообщении для последующей отправки результата
+    await state.update_data(
+        queue_id=queue_id,
+        chat_id=message.chat.id,
+        session_id=session_id
+    )
+    
+    # Очищаем состояние FSM но не удаляем сессию - она будет удалена после генерации
+    await state.set_state(None)
 
 @generation_router.message(ImageGenerationStates.waiting_for_prompt)
 async def wrong_content_prompt(message: Message) -> None:

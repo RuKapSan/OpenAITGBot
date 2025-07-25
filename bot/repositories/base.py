@@ -90,3 +90,42 @@ class BalanceRepository(ABC):
     async def create_or_get_balance(self, user_id: int) -> int:
         """Создать баланс если не существует или вернуть существующий"""
         pass
+
+
+class QueueRepository(ABC):
+    """Абстрактный репозиторий для работы с очередью генераций"""
+    
+    @abstractmethod
+    async def add_to_queue(self, session_id: str, user_id: int, priority: int = 0) -> int:
+        """Добавить задачу в очередь"""
+        pass
+    
+    @abstractmethod
+    async def get_next_in_queue(self) -> Optional[Dict[str, Any]]:
+        """Получить следующую задачу из очереди"""
+        pass
+    
+    @abstractmethod
+    async def update_queue_status(self, queue_id: int, status: str, error_message: Optional[str] = None) -> bool:
+        """Обновить статус задачи в очереди"""
+        pass
+    
+    @abstractmethod
+    async def get_queue_position(self, session_id: str) -> Optional[int]:
+        """Получить позицию в очереди"""
+        pass
+    
+    @abstractmethod
+    async def get_pending_count(self) -> int:
+        """Получить количество задач в очереди"""
+        pass
+    
+    @abstractmethod
+    async def get_user_queue_items(self, user_id: int) -> List[Dict[str, Any]]:
+        """Получить задачи пользователя в очереди"""
+        pass
+    
+    @abstractmethod
+    async def cleanup_stale_items(self, timeout_minutes: int = 30) -> int:
+        """Очистить зависшие задачи"""
+        pass

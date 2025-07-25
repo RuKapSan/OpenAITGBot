@@ -6,6 +6,7 @@ from .config import BOT_TOKEN, logger
 from .handlers import command_router, image_router, generation_router, payment_router
 from .database import setup_database
 from .middleware.rate_limit import RateLimitMiddleware, GenerationRateLimitMiddleware
+from .services import queue_service
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -15,6 +16,12 @@ async def main() -> None:
     """Главная функция"""
     # Инициализируем базу данных
     await setup_database()
+    
+    # Инициализируем сервис очереди
+    queue_service.set_bot(bot)
+    
+    # Восстанавливаем очередь после перезапуска
+    await queue_service.restore_queue()
     
     # Добавляем middleware
     dp.message.middleware(RateLimitMiddleware(rate_limit=30, window_seconds=60))
@@ -29,9 +36,19 @@ async def main() -> None:
     dp.include_router(generation_router)
     dp.include_router(payment_router)
     
+    # Обработчик остановки
+    async def on_shutdown():
+        logger.info("Остановка бота...")
+        await queue_service.pause_queue()
+        await queue_service.cancel_all_tasks()
+        logger.info("Очередь остановлена")
+    
     # Запускаем бота
     logger.info("Бот запущен")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await on_shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
